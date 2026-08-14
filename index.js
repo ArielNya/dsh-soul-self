@@ -122,12 +122,18 @@ function apply(ctx, config) {
   }, "soul-md.section()");
 
   // ── settings-backed configuration ─────────────────────────────────────────
+  // NOTE: `installSettingsSection` hands `setSource` a GETTER
+  // (`() => scope.get()`), not the config object. Keep it and re-read it on
+  // settings change, so `current.*` below always sees resolved values and
+  // hot-reloads (watch) keep working.
+  let sourceGetter = null;
   installSettingsSection(ctx, NS, Config, config, {
-    setSource: (source) => {
-      current = source;
+    setSource: (getter) => {
+      sourceGetter = getter;
     },
     onChange: () => {
       try {
+        if (sourceGetter) current = sourceGetter();
         refresh();
         startWatch();
       } catch (error) {

@@ -61,7 +61,9 @@ function apply(ctx, config) {
 
   const register = (text) => {
     if (active) {
-      active.dispose();
+      // systemPrompt.section() returns the Cordis effect DISPOSER (a
+      // function), not an object — call it, don't call .dispose() on it.
+      active();
       active = null;
     }
     if (text) {
@@ -116,7 +118,7 @@ function apply(ctx, config) {
     return () => {
       stopWatch();
       if (active) {
-        active.dispose();
+        active(); // disposer function, not an object
         active = null;
       }
     };

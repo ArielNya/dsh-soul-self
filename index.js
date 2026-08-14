@@ -22,6 +22,7 @@ import { isAbsolute, join } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
+import { ensureSettingsNamespaceExposed } from "./vendor/dsh-settings-expose.js";
 
 /** Cordis plugin name. */
 const name = "soul-md";
@@ -141,6 +142,12 @@ function apply(ctx, config) {
       }
     },
   });
+
+  // dsh-host-apiproxy hard-codes which settings namespaces the Web client may
+  // see; without this, the settings section answers `settings-not-exposed`
+  // on any stock install. Patch the allowlist idempotently (self-heals after
+  // dsh updates overwrite the file).
+  ensureSettingsNamespaceExposed(ctx, "soul-md", ctx.logger);
 }
 
 export { Config, NS, SECTION_NAME, apply, inject, name };

@@ -12,16 +12,23 @@
  * section is re-registered so edits to soul.md reach the next assembled
  * prompt without a restart. `{{model}}` / `{{cwd}}` style prompt variables
  * are resolved at render time like any other section text.
+ *
+ * Configuration is settings-backed: the composition entry stays the base
+ * layer and a registered `soul-md` settings section (Web UI section,
+ * settings.yaml) overlays it live, hot-applying without a restart.
  */
 import { readFileSync, watch } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
+import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 
 /** Cordis plugin name. */
 const name = "soul-md";
 /** The prompt registry this row contributes to. */
 const inject = ["systemPrompt"];
+/** Settings namespace owned by this plugin (Web UI settings section). */
+const NS = settingsNamespace("soul-md");
 
 /** Section name; deliberately distinct from the registry-owned `deployment:persona`. */
 const SECTION_NAME = "soul:persona";
@@ -43,8 +50,13 @@ const Config = z.object({
 });
 
 function apply(ctx, config) {
-  const file = isAbsolute(config.path) ? config.path : join(resolveDshHome(), config.path);
+  let current = config;
   let active = null;
+  let timer = undefined;
+  let watcher = undefined;
+
+  const fileOf = () =>
+    isAbsolute(current.path) ? current.path : join(resolveDshHome(), current.path);
 
   const register = (text) => {
     if (active) {
@@ -54,9 +66,9 @@ function apply(ctx, config) {
     if (text) {
       active = ctx.systemPrompt.section({
         name: SECTION_NAME,
-        order: config.order,
+        order: current.order,
         text,
-        ...(config.complete ? { complete: true } : {}),
+        ...(current.complete ? { complete: true } : {}),
       });
     }
   };
@@ -64,41 +76,65 @@ function apply(ctx, config) {
   const refresh = () => {
     let text;
     try {
-      text = readFileSync(file, "utf8");
+      text = readFileSync(fileOf(), "utf8");
     } catch {
-      text = config.fallback;
+      text = current.fallback;
     }
     register(text);
   };
 
-  ctx.effect(() => {
-    refresh();
-    if (!config.watch) return undefined;
-    let timer = undefined;
-    let watcher = undefined;
+  const stopWatch = () => {
+    clearTimeout(timer);
+    timer = undefined;
+    if (watcher) {
+      try {
+        watcher.close();
+      } catch {
+        /* already closed */
+      }
+      watcher = undefined;
+    }
+  };
+
+  const startWatch = () => {
+    stopWatch();
+    if (!current.watch) return;
     try {
-      watcher = watch(file, { persistent: false }, () => {
+      watcher = watch(fileOf(), { persistent: false }, () => {
         clearTimeout(timer);
-        timer = setTimeout(refresh, config.debounceMs);
+        timer = setTimeout(refresh, current.debounceMs);
       });
     } catch {
       // File missing at startup: the fallback is registered; reloads are best-effort.
     }
+  };
+
+  ctx.effect(() => {
+    refresh();
+    startWatch();
     return () => {
-      clearTimeout(timer);
-      if (watcher) {
-        try {
-          watcher.close();
-        } catch {
-          /* already closed */
-        }
-      }
+      stopWatch();
       if (active) {
         active.dispose();
         active = null;
       }
     };
   }, "soul-md.section()");
+
+  // ── settings-backed configuration ─────────────────────────────────────────
+  installSettingsSection(ctx, NS, Config, config, {
+    setSource: (source) => {
+      current = source;
+    },
+    onChange: () => {
+      try {
+        refresh();
+        startWatch();
+      } catch (error) {
+        ctx.logger.warn(`[soul-md] settings change refresh failed: ${String(error)}`);
+      }
+    },
+  });
 }
 
-export { Config, SECTION_NAME, apply, inject, name };
+export { Config, NS, SECTION_NAME, apply, inject, name };

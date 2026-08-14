@@ -12,6 +12,10 @@ uses the new persona.
 - No collision with the deployment persona (`deployment:persona`): it uses
   its own section name.
 - Prompt variables (`{{model}}`, `{{cwd}}`) resolve at render time.
+- **Web UI settings section (v0.2.0)**: Settings → 人设卡 edits the
+  `soul-md` namespace (card path, fallback, order, watch) in `settings.yaml`;
+  changes hot-apply. Mount by package name (`name: 'dsh-soul-md'`) so the
+  web client bundle is discovered.
 
 ## Install
 

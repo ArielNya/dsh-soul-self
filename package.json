@@ -1,14 +1,22 @@
-﻿{
+{
   "name": "dsh-soul-md",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "soul.md-style persona injection for DeepSeek Harness: load a markdown persona card into the system prompt with hot reload on file change.",
   "type": "module",
   "main": "index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
   },
   "files": [
     "index.js",
+    "client.js",
     "README.md",
     "README.zh.md",
     "LICENSE",
@@ -36,7 +44,10 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
   }
 }
-

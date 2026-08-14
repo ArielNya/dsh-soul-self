@@ -1,5 +1,9 @@
 # dsh-soul-md
 
+[![中文文档](https://img.shields.io/badge/%E4%B8%AD%E6%96%87%E6%96%87%E6%A1%A3-blue)](README.zh.md)
+
+**GitHub**: [Scorp1o117/dsh-soul-md](https://github.com/Scorp1o117/dsh-soul-md) · **npm**: [dsh-soul-md](https://www.npmjs.com/package/dsh-soul-md)
+
 Soul.md-style persona injection for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
 Load a markdown persona card (soul.md) and render it as the `soul:persona`

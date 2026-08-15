@@ -1,7 +1,7 @@
 {
     "name":  "dsh-soul-md",
-    "version":  "0.3.0",
-    "description":  "DeepSeek Harness 的 soul.md 风格人设卡插件：把 markdown 人设文件注入系统提示词（soul:persona），文件变更热重载；附长期记忆（memory.md）与 soul/memory 读写工具，让 Agent 自己\u201c成长\u201d；Web UI 设置栏。",
+    "version":  "0.4.0",
+    "description":  "DeepSeek Harness 的 soul.md 风格人设 + 长期记忆插件：多人设三级解析（会话选择 > 工作区卡片 > 全局）、记忆按角色/工作区/全局分级存储、聊天框一键切人设、AI 可自行演化人设与记忆；Web UI 设置栏。",
     "type":  "module",
     "main":  "index.js",
     "exports":  {

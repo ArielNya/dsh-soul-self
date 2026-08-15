@@ -33,7 +33,8 @@ window.__ModuleLoader__.load({
       ".__sm_btnPrimary{border-color:var(--dsw-alias-state-business-primary, #3964fe);background:var(--dsw-alias-state-business-primary, #3964fe);color:#fff}" +
       ".__sm_status{font-size:12px;color:var(--dsw-alias-label-tertiary)}" +
       ".__sm_error{font-size:12px;color:var(--dsw-alias-state-error-primary)}" +
-      ".__sm_unavailable{font-size:13px;color:var(--dsw-alias-label-tertiary)}";
+      ".__sm_unavailable{font-size:13px;color:var(--dsw-alias-label-tertiary)}" +
+      ".__sm_memory{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}";
     var tagId = "dsh-soul-md/main.css";
     if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
       var tag = document.createElement("style");
@@ -60,7 +61,13 @@ window.__ModuleLoader__.load({
       error: "保存失败",
       unavailable: "设置命名空间不可用（服务端未注册 soul-md 命名空间？）",
       overridden: "已覆盖",
-      loading: "加载中…"
+      loading: "加载中…",
+      memoryTitle: "长期记忆（memory_* 工具 + soul:memory 注入）",
+      memoryPathHint: "记忆文件路径；绝对路径，或相对 soul.md 所在目录。",
+      memoryInjectHint: "把记忆文件渲染为 soul:memory 系统提示词段落（AI 可随时读到记忆）。",
+      memoryMaxCharsHint: "注入段落的字符上限（从文件开头截取；超出的部分用 memory_read 读取全文）。",
+      soulMaxBytesHint: "soul_update 工具允许写入的最大字节数（防止人设卡被写爆）。",
+      memoryIntro: "AI 可以通过 memory_append / memory_read / memory_rewrite 工具读写这个文件，用 soul_read / soul_update 更新人设卡——让它自己\u201c成长\u201d。"
     };
     var en = {
       nav: "Persona Card",
@@ -76,7 +83,13 @@ window.__ModuleLoader__.load({
       error: "Save failed",
       unavailable: "Settings namespace unavailable (soul-md namespace not registered server-side?)",
       overridden: "overridden",
-      loading: "Loading…"
+      loading: "Loading…",
+      memoryTitle: "Long-term memory (memory_* tools + soul:memory injection)",
+      memoryPathHint: "Memory file path; absolute, or relative to the soul.md directory.",
+      memoryInjectHint: "Also render the memory file as the soul:memory prompt section (the agent always sees its memory).",
+      memoryMaxCharsHint: "Cap for the injected section (chars, from the file head); use memory_read for the full text.",
+      soulMaxBytesHint: "Max bytes soul_update may write to the persona card.",
+      memoryIntro: "The AI reads/writes this file with the memory_append / memory_read / memory_rewrite tools and evolves its persona with soul_read / soul_update — so it can \"grow\" on its own."
     };
 
     var FIELDS = [
@@ -85,9 +98,15 @@ window.__ModuleLoader__.load({
       { key: "order", label: "段落顺序", type: "number" },
       { key: "complete", label: "作为完整系统提示词", type: "checkbox" },
       { key: "watch", label: "文件变更热重载", type: "checkbox" },
-      { key: "debounceMs", label: "重载防抖（毫秒）", type: "number" }
+      { key: "debounceMs", label: "重载防抖（毫秒）", type: "number" },
+      { key: "soulMaxBytes", label: "soul_update 最大字节", type: "number" }
     ];
-    var HINTS = { fallback: "fallbackHint", order: "orderHint", complete: "completeHint", watch: "watchHint" };
+    var MEMORY_FIELDS = [
+      { key: "path", label: "记忆文件路径（绝对，或相对 soul.md 目录）", type: "text", hint: "memoryPathHint" },
+      { key: "inject", label: "注入为 soul:memory 提示词段落", type: "checkbox", hint: "memoryInjectHint" },
+      { key: "injectMaxChars", label: "注入字符上限", type: "number", hint: "memoryMaxCharsHint" }
+    ];
+    var HINTS = { fallback: "fallbackHint", order: "orderHint", complete: "completeHint", watch: "watchHint", soulMaxBytes: "soulMaxBytesHint" };
 
     function SoulSection(props) {
       var t = props.t;
@@ -133,8 +152,45 @@ window.__ModuleLoader__.load({
         setError(null);
       }
 
+      // memory is a nested object in the namespace doc; edit it as a whole.
+      var MEMORY_DEFAULTS = { path: "memory.md", inject: true, injectMaxChars: 8000 };
+      function memoryDraft(f) {
+        var m = draft.memory || {};
+        if (f.type === "checkbox") return m[f.key] !== void 0 ? m[f.key] : Boolean((value.memory || {})[f.key] ?? MEMORY_DEFAULTS[f.key]);
+        return m[f.key] !== void 0 ? m[f.key] : String((value.memory || {})[f.key] ?? MEMORY_DEFAULTS[f.key]);
+      }
+      function setMemoryField(f, v) {
+        setDraft(function (prev) {
+          var next = Object.assign({}, prev);
+          var m = Object.assign({}, prev.memory || {});
+          m[f.key] = v;
+          next.memory = m;
+          return next;
+        });
+        setNotice(null);
+        setError(null);
+      }
+      function memoryNext() {
+        var m = draft.memory || {};
+        var base = value.memory || {};
+        return {
+          path: String(m.path !== void 0 ? m.path : (base.path ?? MEMORY_DEFAULTS.path)),
+          inject: m.inject !== void 0 ? Boolean(m.inject) : Boolean(base.inject ?? MEMORY_DEFAULTS.inject),
+          injectMaxChars: m.injectMaxChars !== void 0 ? Number(m.injectMaxChars) : Number(base.injectMaxChars ?? MEMORY_DEFAULTS.injectMaxChars)
+        };
+      }
+
       function onSave() {
         setBusy(true); setNotice(null); setError(null);
+        var memBase = {
+          path: String((value.memory || {}).path ?? MEMORY_DEFAULTS.path),
+          inject: Boolean((value.memory || {}).inject ?? MEMORY_DEFAULTS.inject),
+          injectMaxChars: Number((value.memory || {}).injectMaxChars ?? MEMORY_DEFAULTS.injectMaxChars)
+        };
+        var memNext = memoryNext();
+        var memPromise = JSON.stringify(memNext) === JSON.stringify(memBase)
+          ? Promise.resolve()
+          : scope.set("memory", memNext);
         Promise.all(FIELDS.map(function (f) {
           var d = fieldDraft(f);
           if (f.type === "checkbox") {
@@ -143,7 +199,7 @@ window.__ModuleLoader__.load({
           }
           if (String(d) === String(value[f.key] ?? "")) return Promise.resolve();
           return String(d).trim() === "" ? scope.unset(f.key) : scope.set(f.key, f.type === "number" ? Number(d) : d);
-        })).then(function () {
+        }).concat([memPromise])).then(function () {
           setBusy(false); setNotice(t("saved"));
           if (scope.load) scope.load();
         }).catch(function (e) {
@@ -170,7 +226,7 @@ window.__ModuleLoader__.load({
 
       function onReset() {
         setBusy(true); setNotice(null); setError(null);
-        Promise.all(FIELDS.map(function (f) { return scope.unset(f.key); })).then(function () {
+        Promise.all(FIELDS.map(function (f) { return scope.unset(f.key); }).concat([scope.unset("memory")])).then(function () {
           setBusy(false); setNotice(t("saved"));
           reseedDraft();
         }).catch(function (e) {
@@ -203,6 +259,26 @@ window.__ModuleLoader__.load({
             f.key in HINTS ? h("span", { className: "__sm_hint" }, t(HINTS[f.key])) : null
           );
         }),
+        h("div", { className: "__sm_memory" },
+          h("p", { className: "__sm_label", style: { margin: 0 } }, t("memoryTitle")),
+          h("p", { className: "__sm_hint", style: { margin: "0 0 2px" } }, t("memoryIntro")),
+          MEMORY_FIELDS.map(function (f) {
+            if (f.type === "checkbox") {
+              return h("label", { key: f.key, className: "__sm_field" },
+                h("span", { className: "__sm_row" },
+                  h("input", { className: "__sm_check", type: "checkbox", checked: Boolean(memoryDraft(f)), onChange: function (e) { setMemoryField(f, e.target.checked); } }),
+                  h("span", { className: "__sm_label" }, f.label)
+                ),
+                f.hint ? h("span", { className: "__sm_hint" }, t(f.hint)) : null
+              );
+            }
+            return h("label", { key: f.key, className: "__sm_field" },
+              h("span", { className: "__sm_label" }, f.label),
+              h("input", { className: "__sm_input", type: f.type === "number" ? "number" : "text", value: memoryDraft(f), onChange: function (e) { setMemoryField(f, e.target.value); } }),
+              f.hint ? h("span", { className: "__sm_hint" }, t(f.hint)) : null
+            );
+          })
+        ),
         h("div", { className: "__sm_actions" },
           h("button", { type: "button", className: "__sm_btn __sm_btnPrimary", onClick: onSave, disabled: busy || !snapshot.writable }, t("save")),
           h("button", { type: "button", className: "__sm_btn", onClick: onReset, disabled: busy || !snapshot.writable }, t("reset")),
@@ -219,6 +295,12 @@ window.__ModuleLoader__.load({
         var f = FIELDS[i];
         out[f.key] = f.type === "checkbox" ? Boolean(value[f.key]) : String(value[f.key] ?? "");
       }
+      var m = value.memory || {};
+      out.memory = {
+        path: String(m.path ?? "memory.md"),
+        inject: Boolean(m.inject ?? true),
+        injectMaxChars: String(m.injectMaxChars ?? 8000)
+      };
       return out;
     }
 

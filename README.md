@@ -20,6 +20,14 @@ uses the new persona.
   `soul-md` namespace (card path, fallback, order, watch) in `settings.yaml`;
   changes hot-apply. Mount by package name (`name: 'dsh-soul-md'`) so the
   web client bundle is discovered.
+- **Long-term memory + self-growth (v0.3.0)**: the agent gets five tools —
+  `soul_read` / `soul_update` to read and evolve its own persona card, and
+  `memory_append` / `memory_read` / `memory_rewrite` for a persistent memory
+  file (Agent.md / memory.md style). The tool descriptions encourage the
+  agent to record what it learns and to fold stable traits into its persona,
+  so it "grows" across sessions instead of resetting every time. The memory
+  file is also injected as a `soul:memory` prompt section (capped) so the
+  agent always sees its memories.
 
 ## Install
 
@@ -52,6 +60,26 @@ Or load it from a local path without npm:
 | `complete` | `false` | Treat the rendered card as the complete system prompt (advanced). |
 | `watch` | `true` | Hot-reload the section on file change. |
 | `debounceMs` | `300` | Reload debounce in milliseconds. |
+| `soulMaxBytes` | `65536` | Cap for `soul_update` writes (protects the card from runaway rewrites). |
+| `memory.path` | `memory.md` | Long-term memory file; absolute, or relative to the soul.md directory. |
+| `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` refuse to exceed this size. |
+| `memory.inject` | `true` | Also render the memory file as the `soul:memory` prompt section. |
+| `memory.injectMaxChars` | `8000` | Cap for the injected section (from the file head); `memory_read` returns the full text. |
+| `memory.order` | `0.5` | Prompt section order for the injected memory section. |
+
+### Tools (the growth loop)
+
+| Tool | What it does |
+|---|---|
+| `memory_append` | Append a dated Markdown entry (`section` heading + `content`) to the memory file. |
+| `memory_read` | Read the whole memory file back (capped at 20k chars). |
+| `memory_rewrite` | Replace the entire memory file (consolidate/dedupe; `""` clears it). |
+| `soul_read` | Read the persona card exactly as stored. |
+| `soul_update` | Replace the whole persona card — the agent's way to fold stable traits into its own identity. |
+
+The tool descriptions carry the growth guidance: record what you learn
+proactively, consolidate when the file grows unwieldy, and update the card
+only for real, stable change.
 
 
 > **Note for users**
@@ -76,7 +104,8 @@ Or load it from a local path without npm:
 
 ## Examples
 
-See [`examples/soul.example.md`](examples/soul.example.md).
+See [`examples/soul.example.md`](examples/soul.example.md) and
+[`examples/memory.example.md`](examples/memory.example.md).
 
 ## License
 

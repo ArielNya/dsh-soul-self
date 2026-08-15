@@ -57,11 +57,11 @@ const MEMORY_DIR = join("soul-md", "memory");
 const Config = z.object({
   // ── v0.5: plugin-managed persona cards ───────────────────────────────────
   /** Persona cards: card name -> markdown content. */
-  cards: z.record(z.string(), z.string()).default({}),
+  cards: z.dict(z.string(), z.string()).default({}),
   /** Default card name (used when the session has no explicit choice). */
   active: z.string().default(""),
   /** Per-session choice: sessionId -> card name, "none", or "" (follow default). */
-  sessions: z.record(z.string(), z.string()).default({}),
+  sessions: z.dict(z.string(), z.string()).default({}),
   // ── long-term memory (plugin-managed files, no user-visible paths) ───────
   memory: z.object({
     /** `memory_append` / `memory_rewrite` refuse to grow a file beyond this size (bytes). */

@@ -28,7 +28,7 @@
  */
 import { readFileSync, statSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, dirname } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
@@ -236,6 +236,7 @@ function apply(ctx, config) {
     },
     onChange: () => {
       registerSections();
+      void maybeMigrate();
     },
   });
 
@@ -248,33 +249,39 @@ function apply(ctx, config) {
   // ── one-time migration from the legacy file-based layout ──────────────────
   // When no cards exist yet and the legacy `path` card file is readable,
   // import it as the "默认" card (and set it active); migrate the legacy
-  // memory file into the managed store as well.
+  // memory file into the managed store as well. Runs from onChange: the
+  // settings inject callback fires it once the settings service is live (a
+  // boot-time ctx.effect can run before that and silently see no settings).
+  let migrated = false;
   const legacyFileOf = () => {
-    const p = cfg().path;
+    // The legacy path may live in the settings layer or in the composition
+    // entry config (`config.path`); the settings layer is authoritative.
+    const p = cfg().path || config.path;
     if (!p) return null;
     return isAbsolute(p) ? p : join(resolveDshHome(), p);
   };
   const legacyMemoryFileOf = () => {
-    const c = cfg();
     const legacy = legacyFileOf();
     if (!legacy) return null;
-    const p = c.memory?.path;
+    // Legacy default: memory.md next to the soul card (v0.2–v0.4 behavior).
+    const p = cfg().memory?.path || config.memory?.path || "memory.md";
     if (!p) return null;
-    return isAbsolute(p) ? p : join(legacy, "..", p);
+    return isAbsolute(p) ? p : join(dirname(legacy), p);
   };
-  const migrateOnce = async () => {
+  const maybeMigrate = async () => {
     try {
+      if (migrated) return;
+      const settings = ctx.get("settings");
+      if (!settings) return; // not ready yet — retried on the next onChange
+      migrated = true;
       const c = cfg();
       if (!c.cards || Object.keys(c.cards).length === 0) {
         const legacy = legacyFileOf();
         if (legacy) {
           const text = await readFile(legacy, "utf8");
           const next = { ...c, cards: { 默认: text }, active: "默认" };
-          const settings = ctx.get("settings");
-          if (settings) {
-            await settings.update(NS, next);
-            ctx.logger.info("[soul-md] imported legacy persona card as 默认");
-          }
+          await settings.update(NS, next);
+          ctx.logger.info("[soul-md] imported legacy persona card as 默认");
         }
       }
       const managedGlobal = memoryFileFor(null);
@@ -297,10 +304,6 @@ function apply(ctx, config) {
       ctx.logger.warn(`[soul-md] legacy migration skipped: ${String(error)}`);
     }
   };
-  ctx.effect(() => {
-    void migrateOnce();
-    return () => {};
-  }, "soul-md.migrate()");
 
   // ── persona + memory tools (the "growth" loop) ────────────────────────────
   const ensureParent = async (file) => {

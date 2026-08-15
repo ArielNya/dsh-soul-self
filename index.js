@@ -342,21 +342,24 @@ function apply(ctx, config) {
 
   // ── workspace list (host-maintained, for the per-workspace persona UI) ─────
   // Read from the durable workspace registry; refreshed on settings changes
-  // and when the sessions directory gains a workspace. The canonical-path
-  // index bridges small casing/spelling differences between the session's
-  // cwd and the registry's realpath canon.
+  // and when the sessions directory gains a workspace. The registry's async
+  // init (history bootstrap) may not be done when this plugin applies, so a
+  // not-ready registry yields null and publishWorkspaces retries until it is.
   const computeWorkspaceList = () => {
     try {
       const registry = ctx.get("workspaceRegistry");
-      if (!registry || typeof registry.list !== "function") return [];
-      return registry.list()
+      if (!registry || typeof registry.list !== "function") return null;
+      const entities = registry.list();
+      if (!Array.isArray(entities)) return null;
+      return entities
         .map((entry) => ({
           path: String(entry.path ?? ""),
           title: String(entry.title ?? ""),
         }))
         .filter((entry) => entry.path.length > 0);
     } catch {
-      return [];
+      // Registry exists but its async init has not completed yet — retry.
+      return null;
     }
   };
   const rebuildWsIndex = (list) => {
@@ -364,19 +367,39 @@ function apply(ctx, config) {
     for (const entry of list) next.set(String(entry.path).toLowerCase(), entry.path);
     wsPathIndex = next;
   };
+  let wsRetryTimer = undefined;
+  let wsRetryCount = 0;
+  function scheduleWsRetry() {
+    if (wsRetryTimer) return;
+    if (wsRetryCount > 300) return; // give up after ~5 minutes of unavailability
+    wsRetryTimer = setTimeout(() => {
+      wsRetryTimer = undefined;
+      wsRetryCount += 1;
+      void publishWorkspaces();
+    }, 1000);
+  }
   async function publishWorkspaces() {
     try {
-      const list = computeWorkspaceList();
+      const computed = computeWorkspaceList();
+      if (computed === null) {
+        scheduleWsRetry(); // registry not ready yet
+        return;
+      }
+      const list = computed;
       rebuildWsIndex(list);
       const json = JSON.stringify(list);
       if (json === lastWsJson) return;
       lastWsJson = json;
       const settings = ctx.get("settings");
-      if (!settings) return;
+      if (!settings) {
+        scheduleWsRetry();
+        return;
+      }
       const base = cfg();
       await settings.update(NS, { ...base, workspaceList: list }).catch((error) => {
         ctx.logger.warn(`[soul-md] workspace list write failed: ${String(error)}`);
       });
+      wsRetryCount = 0;
     } catch (error) {
       ctx.logger.warn(`[soul-md] workspace list refresh failed: ${String(error)}`);
     }
@@ -405,6 +428,7 @@ function apply(ctx, config) {
     startWorkspaceWatch();
     return () => {
       clearTimeout(wsTimer);
+      clearTimeout(wsRetryTimer);
       if (wsWatcher) {
         try {
           wsWatcher.close();

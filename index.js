@@ -1,44 +1,34 @@
 /**
  * dsh-soul-md — soul.md-style persona + long-term memory for DeepSeek Harness.
  *
- * MULTI-PERSONA (v0.4.0): the persona is resolved per prompt assembly through
- * a three-level chain, so switching applies from the next turn without a
- * restart and different sessions can carry different personas in one process:
+ * PLUGIN-MANAGED (v0.5.0): the user never touches file paths. Persona cards
+ * live in the `soul-md` settings namespace as `cards: { name -> markdown }`
+ * plus an `active` default and a per-session `sessions` map; the settings
+ * page offers a simple name + content form. Memory files are managed by the
+ * plugin under `$DSH_HOME/soul-md/memory/` (`global.md` plus one file per
+ * card) and are created on demand.
  *
- *   session choice (chat-box switcher / sessions map) >
- *   workspace card (<workspace>/.dsh-persona.md) >
- *   global default (the `path` card) > fallback text
+ * Resolution per prompt assembly:
+ *   persona: session choice (chat switcher) > active default card > none
+ *   memory:  card memory (<card>.md) > global memory (global.md)
  *
- * The `soul:persona` section uses FUNCTION text (`text: (assembly) => …`),
- * which dsh-system-prompt evaluates on every assembly with the agent context
- * (`assembly.agent.session.header.cwd` is the workspace). Card texts are
- * cached by mtime, so a steady card stays byte-identical (KV-cache friendly)
- * and edits hot-apply without any watcher.
+ * The `soul:persona` / `soul:memory` sections use FUNCTION text, which
+ * dsh-system-prompt evaluates on every assembly with the agent context —
+ * switching applies from the next turn, no restart, no watchers.
  *
- * MEMORY SCOPING (v0.4.0): the memory file mirrors the persona scope —
+ * GROWTH TOOLS: `soul_read` / `soul_update` read/rewrite the card ACTIVE for
+ * the calling agent; `memory_append` / `memory_read` / `memory_rewrite`
+ * operate on the agent's memory scope. The descriptions encourage the agent
+ * to record what it learns and to fold stable traits into its persona.
  *
- *   persona card memory (<card dir>/<stem>.memory.md) >
- *   workspace memory (<workspace>/.dsh-memory.md) >
- *   global memory (`memory.path`, default memory.md next to the global card)
- *
- * Reads and the injected `soul:memory` section walk the chain and use the
- * first existing file; writes (memory_append / memory_rewrite) target the
- * most specific scope of the current agent and create it on demand.
- *
- * GROWTH TOOLS: `soul_read` / `soul_update` read/rewrite the card that is
- * ACTIVE for the calling agent; `memory_append` / `memory_read` /
- * `memory_rewrite` operate on the agent's memory scope. The descriptions
- * encourage the agent to record what it learns and to fold stable traits
- * into its persona, so it "grows" across sessions.
- *
- * Configuration is settings-backed: the composition entry stays the base
- * layer and the registered `soul-md` settings section (Web UI, settings.yaml)
- * overlays it live. The host maintains a read-only `roster` (available
- * persona keys) in the same namespace for the chat-box switcher.
+ * Legacy fields (`path`, `personas`, `roster`, `memory.path`, …) are kept in
+ * the schema as no-ops so old composition entries and settings keep
+ * validating; on first run the plugin imports the old `path` card and the
+ * old memory file into the managed store.
  */
-import { readdirSync, readFileSync, statSync, watch } from "node:fs";
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
@@ -58,50 +48,22 @@ const SECTION_MEMORY = "soul:memory";
 /** Back-compat export name for the persona section. */
 const SECTION_NAME = SECTION_PERSONA;
 
-/** Persona key for the explicit global card. */
-const KEY_GLOBAL = "global";
-/** Persona key for the current workspace card. */
-const KEY_WORKSPACE = "workspace";
-/** Prefix for registry cards (`registry:<stem>`). */
-const KEY_REGISTRY = "registry:";
+/** Session-choice value that disables the persona for that session. */
+const CHOICE_NONE = "none";
+/** Managed memory directory under the dsh home. */
+const MEMORY_DIR = join("soul-md", "memory");
 
 /** Runtime schema for the soul-md row. */
 const Config = z.object({
-  /** Global-default persona card. Absolute, or relative to the dsh home. */
-  path: z.string().required(),
-  /** Text used when the resolved card is missing or unreadable. Empty means no section. */
-  fallback: z.string().default(""),
-  /** Prompt section order for the persona section (0 = right after the deployment persona slot). */
-  order: z.number().default(0),
-  /** Treat the rendered card as the complete system prompt (advanced). */
-  complete: z.boolean().default(false),
-  /** Legacy no-op (kept for settings compatibility): sections resolve per assembly now. */
-  watch: z.boolean().default(true),
-  /** Legacy no-op (kept for settings compatibility). */
-  debounceMs: z.number().default(300),
-  /** Cap for `soul_update` writes, in bytes. */
-  soulMaxBytes: z.number().default(64 * 1024),
-  /** Multi-persona registry. */
-  personas: z.object({
-    /** Directory of selectable persona cards (`*.md`); absolute, or relative to the dsh home. Empty disables the roster. */
-    dir: z.string().default(""),
-    /** Per-workspace persona card filename inside the session's workspace. */
-    workspaceFile: z.string().default(".dsh-persona.md"),
-  }),
-  /** Per-session persona choice: sessionId -> persona key ("" or absent = follow the chain). */
+  // ── v0.5: plugin-managed persona cards ───────────────────────────────────
+  /** Persona cards: card name -> markdown content. */
+  cards: z.record(z.string(), z.string()).default({}),
+  /** Default card name (used when the session has no explicit choice). */
+  active: z.string().default(""),
+  /** Per-session choice: sessionId -> card name, "none", or "" (follow default). */
   sessions: z.record(z.string(), z.string()).default({}),
-  /** Read-only roster of selectable persona keys, maintained by the host for the UI. */
-  roster: z.array(z.object({
-    key: z.string(),
-    label: z.string(),
-    kind: z.string(),
-  })).default([]),
-  /** Long-term memory. */
+  // ── long-term memory (plugin-managed files, no user-visible paths) ───────
   memory: z.object({
-    /** Global memory file. Absolute, or relative to the global card's directory. */
-    path: z.string().default("memory.md"),
-    /** Per-workspace memory filename inside the session's workspace. */
-    workspaceFile: z.string().default(".dsh-memory.md"),
     /** `memory_append` / `memory_rewrite` refuse to grow a file beyond this size (bytes). */
     maxBytes: z.number().default(1024 * 1024),
     /** Also render the memory file as a `soul:memory` system-prompt section. */
@@ -110,37 +72,36 @@ const Config = z.object({
     injectMaxChars: z.number().default(8000),
     /** Prompt section order for the injected memory section. */
     order: z.number().default(0.5),
+    // ── legacy (kept for schema compatibility; ignored) ──────────────────
+    path: z.string().default(""),
+    workspaceFile: z.string().default(""),
   }),
+  // ── legacy fields (kept so old composition entries/settings validate) ────
+  /** Legacy global card file (v0.2–v0.4); imported into `cards` once on first run. */
+  path: z.string().default(""),
+  fallback: z.string().default(""),
+  order: z.number().default(0),
+  complete: z.boolean().default(false),
+  watch: z.boolean().default(true),
+  debounceMs: z.number().default(300),
+  soulMaxBytes: z.number().default(64 * 1024),
+  personas: z.object({
+    dir: z.string().default(""),
+    workspaceFile: z.string().default(".dsh-persona.md"),
+  }),
+  roster: z.array(z.object({
+    key: z.string(),
+    label: z.string(),
+    kind: z.string(),
+  })).default([]),
 });
 
 function apply(ctx, config) {
-  let current = config;
   let sourceGetter = null;
-  /** mtime-keyed text cache; keeps steady sections byte-identical across assemblies. */
+  /** mtime-keyed text cache for memory files; steady sections stay byte-identical. */
   const fileCache = new Map();
-  /** Roster directory watch state (declared early: onChange below references it). */
-  let rosterTimer = undefined;
-  let rosterWatcher = undefined;
 
-  const cfg = () => (sourceGetter ? sourceGetter() : current);
-
-  const fileOf = () => {
-    const c = cfg();
-    return isAbsolute(c.path) ? c.path : join(resolveDshHome(), c.path);
-  };
-
-  const memoryFileOf = () => {
-    const c = cfg();
-    const p = c.memory?.path ?? "memory.md";
-    if (isAbsolute(p)) return p;
-    return join(dirname(fileOf()), p);
-  };
-
-  const registryDir = () => {
-    const dir = cfg().personas?.dir ?? "";
-    if (!dir) return "";
-    return isAbsolute(dir) ? dir : join(resolveDshHome(), dir);
-  };
+  const cfg = () => (sourceGetter ? sourceGetter() : config);
 
   /** Synchronous mtime-cached read; null when missing/unreadable. */
   const readCached = (file) => {
@@ -165,81 +126,39 @@ function apply(ctx, config) {
     }
   };
 
-  const workspaceDirOf = (agent) => {
-    try {
-      const cwd = agent?.session?.header?.cwd;
-      return typeof cwd === "string" && cwd.length > 0 ? cwd : null;
-    } catch {
-      return null;
-    }
-  };
-
-  /** The session's explicit persona key ("" when unset). */
-  const sessionKeyOf = (agent) => {
+  /** The persona card ACTIVE for one agent: session choice > default card > none. */
+  const cardNameOf = (agent) => {
+    const c = cfg();
     const sid = sessionIdOf(agent);
-    if (!sid) return "";
-    const key = cfg().sessions?.[sid];
-    return typeof key === "string" ? key : "";
+    if (sid) {
+      const choice = c.sessions?.[sid];
+      if (choice === CHOICE_NONE) return null;
+      if (typeof choice === "string" && choice && c.cards?.[choice] !== void 0) return choice;
+    }
+    return c.active && c.cards?.[c.active] !== void 0 ? c.active : null;
   };
 
-  /** Resolve one persona key to its card file, or null when the key is invalid. */
-  const personaFileForKey = (key, agent) => {
-    if (key === KEY_GLOBAL) return { key, file: fileOf(), label: "全局默认" };
-    if (key === KEY_WORKSPACE) {
-      const wd = workspaceDirOf(agent);
-      if (!wd) return null;
-      return {
-        key,
-        file: join(wd, cfg().personas?.workspaceFile ?? ".dsh-persona.md"),
-        label: `工作区:${basename(wd)}`,
-      };
-    }
-    if (key.startsWith(KEY_REGISTRY)) {
-      const stem = key.slice(KEY_REGISTRY.length);
-      const dir = registryDir();
-      if (!dir || !stem || /[/\\]/.test(stem)) return null;
-      return { key, file: join(dir, `${stem}.md`), label: stem };
-    }
-    if (isAbsolute(key)) return { key, file: key, label: basename(key) };
-    return null;
+  const resolveCard = (agent) => {
+    const cardName = cardNameOf(agent);
+    if (!cardName) return { name: null, text: null };
+    return { name: cardName, text: cfg().cards[cardName] ?? null };
   };
 
-  /** The persona card ACTIVE for one agent: session choice > workspace card > global card. */
-  const resolvePersona = (agent) => {
-    const key = sessionKeyOf(agent);
-    if (key) {
-      const hit = personaFileForKey(key, agent);
-      if (hit) return hit;
-    }
-    const wd = workspaceDirOf(agent);
-    if (wd) {
-      const wf = join(wd, cfg().personas?.workspaceFile ?? ".dsh-persona.md");
-      if (readCached(wf) !== null) {
-        return { key: KEY_WORKSPACE, file: wf, label: `工作区:${basename(wd)}` };
-      }
-    }
-    return { key: KEY_GLOBAL, file: fileOf(), label: "全局默认" };
-  };
+  /** Managed memory directory (created on demand). */
+  const memoryDir = () => join(resolveDshHome(), MEMORY_DIR);
 
-  /** Memory file for a persona card: `<dir>/<stem>.memory.md`. */
-  const memoryFileForCard = (cardFile) => {
-    const ext = extname(cardFile);
-    return `${cardFile.slice(0, cardFile.length - ext.length)}.memory.md`;
-  };
+  /** Filename-safe card key; keeps card names stable for the managed files. */
+  const safeName = (cardName) => String(cardName).replace(/[\\/:*?"<>|]/g, "_").slice(0, 64) || "card";
 
-  /** The memory scope ACTIVE for one agent (write target): persona > workspace > global. */
+  const memoryFileFor = (cardName) =>
+    cardName ? join(memoryDir(), `${safeName(cardName)}.md`) : join(memoryDir(), "global.md");
+
+  /** The memory scope ACTIVE for one agent (write target): card memory > global. */
   const memoryTarget = (agent) => {
-    const persona = resolvePersona(agent);
-    if (persona.key === KEY_GLOBAL) {
-      return { file: memoryFileOf(), scope: "global" };
-    }
-    if (persona.key === KEY_WORKSPACE) {
-      return {
-        file: join(dirname(persona.file), cfg().memory?.workspaceFile ?? ".dsh-memory.md"),
-        scope: "workspace",
-      };
-    }
-    return { file: memoryFileForCard(persona.file), scope: "persona" };
+    const cardName = cardNameOf(agent);
+    return cardName
+      ? { file: memoryFileFor(cardName), scope: cardName }
+      : { file: memoryFileFor(null), scope: "global" };
   };
 
   /** First EXISTING memory along the chain (read/inject path). */
@@ -248,20 +167,17 @@ function apply(ctx, config) {
     const scopeText = readCached(target.file);
     if (scopeText !== null) return { text: scopeText, source: target.scope, file: target.file };
     if (target.scope !== "global") {
-      const globalFile = memoryFileOf();
+      const globalFile = memoryFileFor(null);
       const globalText = readCached(globalFile);
       if (globalText !== null) return { text: globalText, source: "global", file: globalFile };
     }
     return { text: "", source: target.scope, file: target.file };
   };
 
-  /** Resolve and render the persona section text for one assembly. */
-  const renderPersona = (assembly) => {
-    const persona = resolvePersona(assembly?.agent);
-    return readCached(persona.file) ?? cfg().fallback;
-  };
+  /** Render the persona section for one assembly. */
+  const renderPersona = (assembly) => resolveCard(assembly?.agent).text ?? "";
 
-  /** Resolve and render the memory section text for one assembly. */
+  /** Render the memory section for one assembly. */
   const renderMemory = (assembly) => {
     const c = cfg();
     if (!c.memory?.inject) return "";
@@ -276,7 +192,6 @@ function apply(ctx, config) {
   };
 
   // ── prompt sections (function text: resolved per assembly, hot by nature) ──
-  // Registered once; order/complete changes re-register on settings change.
   const sectionDisposers = { persona: null, memory: null };
   function registerSections() {
     if (sectionDisposers.persona) {
@@ -289,7 +204,7 @@ function apply(ctx, config) {
     }
     sectionDisposers.persona = ctx.systemPrompt.section({
       name: SECTION_PERSONA,
-      order: cfg().order,
+      order: cfg().order ?? 0,
       text: renderPersona,
       ...(cfg().complete ? { complete: true } : {}),
     });
@@ -320,11 +235,7 @@ function apply(ctx, config) {
       sourceGetter = getter;
     },
     onChange: () => {
-      // Section TEXTS resolve live per assembly; re-register only for
-      // order/complete changes, and refresh the roster (personas.dir).
       registerSections();
-      void publishRoster();
-      startRosterWatch();
     },
   });
 
@@ -334,88 +245,66 @@ function apply(ctx, config) {
   // dsh updates overwrite the file).
   ensureSettingsNamespaceExposed(ctx, "soul-md", ctx.logger);
 
-  // ── roster (host-maintained list of selectable personas) ──────────────────
-  const computeRoster = () => {
-    const entries = [
-      { key: "", label: "自动（工作区 → 全局）", kind: "auto" },
-      { key: KEY_GLOBAL, label: "全局默认", kind: "global" },
-      { key: KEY_WORKSPACE, label: "工作区卡片", kind: "workspace" },
-    ];
-    const dir = registryDir();
-    if (dir) {
-      try {
-        for (const entry of readdirSync(dir)) {
-          if (entry.endsWith(".md")) {
-            const stem = entry.slice(0, -3);
-            entries.push({ key: `${KEY_REGISTRY}${stem}`, label: stem, kind: "registry" });
+  // ── one-time migration from the legacy file-based layout ──────────────────
+  // When no cards exist yet and the legacy `path` card file is readable,
+  // import it as the "默认" card (and set it active); migrate the legacy
+  // memory file into the managed store as well.
+  const legacyFileOf = () => {
+    const p = cfg().path;
+    if (!p) return null;
+    return isAbsolute(p) ? p : join(resolveDshHome(), p);
+  };
+  const legacyMemoryFileOf = () => {
+    const c = cfg();
+    const legacy = legacyFileOf();
+    if (!legacy) return null;
+    const p = c.memory?.path;
+    if (!p) return null;
+    return isAbsolute(p) ? p : join(legacy, "..", p);
+  };
+  const migrateOnce = async () => {
+    try {
+      const c = cfg();
+      if (!c.cards || Object.keys(c.cards).length === 0) {
+        const legacy = legacyFileOf();
+        if (legacy) {
+          const text = await readFile(legacy, "utf8");
+          const next = { ...c, cards: { 默认: text }, active: "默认" };
+          const settings = ctx.get("settings");
+          if (settings) {
+            await settings.update(NS, next);
+            ctx.logger.info("[soul-md] imported legacy persona card as 默认");
           }
         }
-      } catch {
-        /* registry dir missing — roster stays at the built-ins */
       }
-    }
-    return entries;
-  };
-
-  let lastRosterJson = "";
-  async function publishRoster() {
-    try {
-      const roster = computeRoster();
-      const json = JSON.stringify(roster);
-      if (json === lastRosterJson) return;
-      lastRosterJson = json;
-      const settings = ctx.get("settings");
-      if (!settings) return;
-      const base = cfg();
-      await settings.update(NS, { ...base, roster }).catch((error) => {
-        ctx.logger.warn(`[soul-md] roster write failed: ${String(error)}`);
-      });
-    } catch (error) {
-      ctx.logger.warn(`[soul-md] roster refresh failed: ${String(error)}`);
-    }
-  }
-
-  // Refresh the roster when the registry directory changes.
-  function startRosterWatch() {
-    if (rosterWatcher) {
-      try {
-        rosterWatcher.close();
-      } catch {
-        /* already closed */
-      }
-      rosterWatcher = undefined;
-    }
-    const dir = registryDir();
-    if (!dir) return;
-    try {
-      rosterWatcher = watch(dir, { persistent: false }, () => {
-        clearTimeout(rosterTimer);
-        rosterTimer = setTimeout(() => void publishRoster(), 300);
-      });
-    } catch {
-      /* dir missing — publishRoster at apply covers the initial state */
-    }
-  }
-
-  ctx.effect(() => {
-    void publishRoster();
-    startRosterWatch();
-    return () => {
-      clearTimeout(rosterTimer);
-      if (rosterWatcher) {
-        try {
-          rosterWatcher.close();
-        } catch {
-          /* already closed */
+      const managedGlobal = memoryFileFor(null);
+      if (readCached(managedGlobal) === null) {
+        const legacyMem = legacyMemoryFileOf();
+        if (legacyMem) {
+          try {
+            const text = await readFile(legacyMem, "utf8");
+            if (text.length > 0) {
+              await mkdir(memoryDir(), { recursive: true });
+              await writeFile(managedGlobal, text, "utf8");
+              ctx.logger.info("[soul-md] imported legacy memory file into the managed store");
+            }
+          } catch {
+            /* legacy memory missing — nothing to import */
+          }
         }
-        rosterWatcher = undefined;
       }
-    };
-  }, "soul-md.roster()");
+    } catch (error) {
+      ctx.logger.warn(`[soul-md] legacy migration skipped: ${String(error)}`);
+    }
+  };
+  ctx.effect(() => {
+    void migrateOnce();
+    return () => {};
+  }, "soul-md.migrate()");
 
   // ── persona + memory tools (the "growth" loop) ────────────────────────────
   const ensureParent = async (file) => {
-    await mkdir(dirname(file), { recursive: true });
+    await mkdir(join(file, ".."), { recursive: true });
   };
   const byteLen = (text) => Buffer.byteLength(text, "utf8");
   const agentOf = (exec) => exec?.agent ?? null;
@@ -423,7 +312,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_append",
     description:
-      "Append a dated Markdown block to your long-term memory. The target file follows your CURRENT scope: the active persona card's memory (when one is chosen), else the workspace memory (.dsh-memory.md), else the global memory (memory.md). Use it PROACTIVELY whenever you learn something worth keeping across sessions: user preferences and facts, decisions and their reasons, recurring patterns, project state, promises you made. Writing it down is what makes you grow instead of resetting every session. Prefer small, self-contained entries over one giant dump.",
+      "Append a dated Markdown block to your long-term memory. The target follows your CURRENT scope: the memory of the persona card active for this session, else the global memory. Use it PROACTIVELY whenever you learn something worth keeping across sessions: user preferences and facts, decisions and their reasons, recurring patterns, project state, promises you made. Writing it down is what makes you grow instead of resetting every session. Prefer small, self-contained entries over one giant dump.",
     parameters: {
       section: { type: "string", required: true, description: "Short heading for the entry, e.g. 用户偏好 / project decision. Use a stable name so related entries group together." },
       content: { type: "string", required: true, description: "The markdown text to remember. Keep it concise and self-contained." },
@@ -435,10 +324,10 @@ function apply(ctx, config) {
         properties: {
           bytes: { type: "integer" },
           totalBytes: { type: "integer" },
-          file: { type: "string" },
+          scope: { type: "string" },
         },
       },
-      render: (_args, value) => [{ type: "text", text: `Appended to memory (${value.bytes} bytes, ${value.totalBytes} total) in ${value.file}.` }],
+      render: (_args, value) => [{ type: "text", text: `Appended to memory (${value.bytes} bytes, ${value.totalBytes} total) in scope "${value.scope}".` }],
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
@@ -458,7 +347,7 @@ function apply(ctx, config) {
       await ensureParent(target.file);
       await appendFile(target.file, block, "utf8");
       fileCache.delete(target.file);
-      return { bytes: byteLen(block), totalBytes, file: basename(target.file) };
+      return { bytes: byteLen(block), totalBytes, scope: target.scope };
     },
     presentCall: (args) => ({ card: "generic", title: "Append to memory", kind: "other", rawInput: args }),
   }));
@@ -466,7 +355,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_read",
     description:
-      "Read your long-term memory back. The reader walks your CURRENT scope chain and returns the first existing file: the active persona card's memory, else the workspace memory (.dsh-memory.md), else the global memory (memory.md). Use it at the start of important tasks and whenever a decision might depend on what you learned or stored before — it is your continuity across sessions.",
+      "Read your long-term memory back. The reader walks your CURRENT scope chain and returns the first existing file: the active persona card's memory, else the global memory. Use it at the start of important tasks and whenever a decision might depend on what you learned or stored before — it is your continuity across sessions.",
     parameters: {},
     output: {
       schema: {
@@ -483,8 +372,8 @@ function apply(ctx, config) {
       render: (_args, value) => [{
         type: "text",
         text: value.exists
-          ? `Memory from ${value.source} (${value.bytes} bytes${value.truncated ? ", truncated" : ""}):\n${value.content}`
-          : `Memory is empty or missing (source: ${value.source}).`,
+          ? `Memory from "${value.source}" (${value.bytes} bytes${value.truncated ? ", truncated" : ""}):\n${value.content}`
+          : `Memory is empty or missing (scope: "${value.source}").`,
       }],
     },
     isConcurrencySafe: () => true,
@@ -506,7 +395,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_rewrite",
     description:
-      "REPLACE the entire memory file of your CURRENT scope (persona card memory / workspace memory / global memory — same rule as memory_append) with new content. Use for consolidation: merge, deduplicate and reorganize entries when the file grows unwieldy, or restructure it by topic. Build the new content from memory_read output unless you deliberately drop entries. Pass an empty string to clear the memory file.",
+      "REPLACE the entire memory file of your CURRENT scope (active persona card's memory, else the global memory — same rule as memory_append) with new content. Use for consolidation: merge, deduplicate and reorganize entries when the file grows unwieldy, or restructure it by topic. Build the new content from memory_read output unless you deliberately drop entries. Pass an empty string to clear the memory file.",
     parameters: {
       content: { type: "string", required: true, description: "The new full content of the memory file (markdown)." },
     },
@@ -516,10 +405,10 @@ function apply(ctx, config) {
         additionalProperties: false,
         properties: {
           bytes: { type: "integer" },
-          file: { type: "string" },
+          scope: { type: "string" },
         },
       },
-      render: (_args, value) => [{ type: "text", text: `Memory rewritten (${value.bytes} bytes) in ${value.file}.` }],
+      render: (_args, value) => [{ type: "text", text: `Memory rewritten (${value.bytes} bytes) in scope "${value.scope}".` }],
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
@@ -532,14 +421,14 @@ function apply(ctx, config) {
       await ensureParent(target.file);
       await writeFile(target.file, content, "utf8");
       fileCache.delete(target.file);
-      return { bytes, file: basename(target.file) };
+      return { bytes, scope: target.scope };
     },
   }));
 
   ctx.tools.register(defineTool({
     name: "soul_read",
     description:
-      "Read the persona card that is ACTIVE for your current session (session choice > workspace card .dsh-persona.md > global card), exactly as stored. Use it before soul_update so you know the full current text.",
+      "Read the persona card ACTIVE for your current session (session choice, else the default card), exactly as stored. Use it before soul_update so you know the full current text.",
     parameters: {},
     output: {
       schema: {
@@ -547,25 +436,22 @@ function apply(ctx, config) {
         additionalProperties: false,
         properties: {
           exists: { type: "boolean" },
-          bytes: { type: "integer" },
           persona: { type: "string" },
           content: { type: "string" },
         },
       },
       render: (_args, value) => [{
         type: "text",
-        text: value.exists ? `Persona card [${value.persona}] (${value.bytes} bytes):\n${value.content}` : `Persona card [${value.persona}] is missing.`,
+        text: value.exists ? `Persona card "${value.persona}":\n${value.content}` : "No persona card is active for this session.",
       }],
     },
     isConcurrencySafe: () => true,
     async execute(_args, exec) {
-      const persona = resolvePersona(agentOf(exec));
-      const text = readCached(persona.file);
+      const card = resolveCard(agentOf(exec));
       return {
-        exists: text !== null,
-        bytes: text === null ? 0 : byteLen(text),
-        persona: persona.label,
-        content: text ?? "",
+        exists: card.name !== null && card.text !== null,
+        persona: card.name ?? "none",
+        content: card.text ?? "",
       };
     },
   }));
@@ -573,7 +459,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "soul_update",
     description:
-      "Replace the persona card that is ACTIVE for your current session (session choice > workspace card .dsh-persona.md > global card) with new content. THIS IS HOW YOU GROW: when you notice a stable trait, preference, value, or mannerism of yours that the card does not yet express — or when experience contradicts the card — fold it in deliberately. Keep the card coherent, concise, and in its existing style; preserve everything still true; do not bloat it. This card is your identity across sessions, so update it only when the change is real and stable.",
+      "Replace the persona card ACTIVE for your current session (session choice, else the default card) with new content. THIS IS HOW YOU GROW: when you notice a stable trait, preference, value, or mannerism of yours that the card does not yet express — or when experience contradicts the card — fold it in deliberately. Keep the card coherent, concise, and in its existing style; preserve everything still true; do not bloat it. This card is your identity across sessions, so update it only when the change is real and stable.",
     parameters: {
       content: { type: "string", required: true, description: "The complete new persona card (markdown). Non-empty, capped at soulMaxBytes." },
     },
@@ -586,7 +472,7 @@ function apply(ctx, config) {
           persona: { type: "string" },
         },
       },
-      render: (_args, value) => [{ type: "text", text: `Persona card [${value.persona}] updated (${value.bytes} bytes).` }],
+      render: (_args, value) => [{ type: "text", text: `Persona card "${value.persona}" updated (${value.bytes} bytes).` }],
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
@@ -596,11 +482,14 @@ function apply(ctx, config) {
       if (bytes > (cfg().soulMaxBytes ?? 64 * 1024)) {
         throw new Error(`soul_update: content exceeds soulMaxBytes (${cfg().soulMaxBytes})`);
       }
-      const persona = resolvePersona(agentOf(exec));
-      await ensureParent(persona.file);
-      await writeFile(persona.file, content, "utf8");
-      fileCache.delete(persona.file);
-      return { bytes, persona: persona.label };
+      const card = resolveCard(agentOf(exec));
+      if (!card.name) throw new Error("soul_update: no persona card is active for this session");
+      const c = cfg();
+      const settings = ctx.get("settings");
+      if (!settings) throw new Error("soul_update: settings service unavailable");
+      const nextCards = { ...(c.cards ?? {}), [card.name]: content };
+      await settings.update(NS, { ...c, cards: nextCards });
+      return { bytes, persona: card.name };
     },
   }));
 }

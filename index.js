@@ -9,8 +9,12 @@
  * card) and are created on demand.
  *
  * Resolution per prompt assembly:
- *   persona: session choice (chat switcher) > active default card > none
+ *   persona: session choice (chat switcher) > workspace mapping > active default card > none
  *   memory:  card memory (<card>.md) > global memory (global.md)
+ *
+ * Workspace personas: the settings page assigns a card per workspace
+ * (host-published `workspaceList` from the durable workspace registry); the
+ * mapping is keyed by workspace path and resolved from the session's cwd.
  *
  * The `soul:persona` / `soul:memory` sections use FUNCTION text, which
  * dsh-system-prompt evaluates on every assembly with the agent context —
@@ -62,6 +66,13 @@ const Config = z.object({
   active: z.string().default(""),
   /** Per-session choice: sessionId -> card name, "none", or "" (follow default). */
   sessions: z.dict(z.string(), z.string()).default({}),
+  /** Per-workspace choice: workspace path -> card name, "none", or "" (follow default). */
+  workspaces: z.dict(z.string(), z.string()).default({}),
+  /** Read-only workspace list (path + title), maintained by the host for the UI. */
+  workspaceList: z.array(z.object({
+    path: z.string(),
+    title: z.string(),
+  })).default([]),
   // ── long-term memory (plugin-managed files, no user-visible paths) ───────
   memory: z.object({
     /** `memory_append` / `memory_rewrite` refuse to grow a file beyond this size (bytes). */
@@ -100,6 +111,12 @@ function apply(ctx, config) {
   let sourceGetter = null;
   /** mtime-keyed text cache for memory files; steady sections stay byte-identical. */
   const fileCache = new Map();
+  /** Workspace canonical-path index (lowercased cwd -> canonical path from the registry). */
+  let wsPathIndex = new Map();
+  /** Workspace-list publish state (declared early: onChange below references it). */
+  let lastWsJson = "";
+  let wsTimer = undefined;
+  let wsWatcher = undefined;
 
   const cfg = () => (sourceGetter ? sourceGetter() : config);
 
@@ -126,12 +143,28 @@ function apply(ctx, config) {
     }
   };
 
-  /** The persona card ACTIVE for one agent: session choice > default card > none. */
+  const workspaceDirOf = (agent) => {
+    try {
+      const cwd = agent?.session?.header?.cwd;
+      return typeof cwd === "string" && cwd.length > 0 ? cwd : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /** The persona card ACTIVE for one agent: session choice > workspace mapping > default card > none. */
   const cardNameOf = (agent) => {
     const c = cfg();
     const sid = sessionIdOf(agent);
     if (sid) {
       const choice = c.sessions?.[sid];
+      if (choice === CHOICE_NONE) return null;
+      if (typeof choice === "string" && choice && c.cards?.[choice] !== void 0) return choice;
+    }
+    const cwd = workspaceDirOf(agent);
+    if (cwd) {
+      const key = wsPathIndex.get(String(cwd).toLowerCase()) ?? cwd;
+      const choice = c.workspaces?.[key];
       if (choice === CHOICE_NONE) return null;
       if (typeof choice === "string" && choice && c.cards?.[choice] !== void 0) return choice;
     }
@@ -237,6 +270,8 @@ function apply(ctx, config) {
     onChange: () => {
       registerSections();
       void maybeMigrate();
+      void publishWorkspaces();
+      startWorkspaceWatch();
     },
   });
 
@@ -304,6 +339,82 @@ function apply(ctx, config) {
       ctx.logger.warn(`[soul-md] legacy migration skipped: ${String(error)}`);
     }
   };
+
+  // ── workspace list (host-maintained, for the per-workspace persona UI) ─────
+  // Read from the durable workspace registry; refreshed on settings changes
+  // and when the sessions directory gains a workspace. The canonical-path
+  // index bridges small casing/spelling differences between the session's
+  // cwd and the registry's realpath canon.
+  const computeWorkspaceList = () => {
+    try {
+      const registry = ctx.get("workspaceRegistry");
+      if (!registry || typeof registry.list !== "function") return [];
+      return registry.list()
+        .map((entry) => ({
+          path: String(entry.path ?? ""),
+          title: String(entry.title ?? ""),
+        }))
+        .filter((entry) => entry.path.length > 0);
+    } catch {
+      return [];
+    }
+  };
+  const rebuildWsIndex = (list) => {
+    const next = new Map();
+    for (const entry of list) next.set(String(entry.path).toLowerCase(), entry.path);
+    wsPathIndex = next;
+  };
+  async function publishWorkspaces() {
+    try {
+      const list = computeWorkspaceList();
+      rebuildWsIndex(list);
+      const json = JSON.stringify(list);
+      if (json === lastWsJson) return;
+      lastWsJson = json;
+      const settings = ctx.get("settings");
+      if (!settings) return;
+      const base = cfg();
+      await settings.update(NS, { ...base, workspaceList: list }).catch((error) => {
+        ctx.logger.warn(`[soul-md] workspace list write failed: ${String(error)}`);
+      });
+    } catch (error) {
+      ctx.logger.warn(`[soul-md] workspace list refresh failed: ${String(error)}`);
+    }
+  }
+  function startWorkspaceWatch() {
+    if (wsWatcher) {
+      try {
+        wsWatcher.close();
+      } catch {
+        /* already closed */
+      }
+      wsWatcher = undefined;
+    }
+    try {
+      wsWatcher = watch(join(resolveDshHome(), "sessions"), { persistent: false }, () => {
+        clearTimeout(wsTimer);
+        wsTimer = setTimeout(() => void publishWorkspaces(), 300);
+      });
+    } catch {
+      /* sessions dir missing — the onChange publish covers the initial state */
+    }
+  }
+
+  ctx.effect(() => {
+    void publishWorkspaces();
+    startWorkspaceWatch();
+    return () => {
+      clearTimeout(wsTimer);
+      if (wsWatcher) {
+        try {
+          wsWatcher.close();
+        } catch {
+          /* already closed */
+        }
+        wsWatcher = undefined;
+      }
+    };
+  }, "soul-md.workspaces()");
 
   // ── persona + memory tools (the "growth" loop) ────────────────────────────
   const ensureParent = async (file) => {

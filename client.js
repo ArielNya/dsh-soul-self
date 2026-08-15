@@ -87,7 +87,12 @@ window.__ModuleLoader__.load({
       memoryMaxCharsHint: "注入段落的字符上限（超出的部分用 memory_read 读取全文）。",
       memoryMaxBytesHint: "单份记忆文件大小上限。",
       switchLabel: "人设",
-      switchTitle: "切换当前会话的人设（会话级，优先于默认卡）"
+      switchTitle: "切换当前会话的人设（会话级，优先于工作区/默认卡）",
+      wsTitle: "工作区人设",
+      wsHint: "给每个工作区指定人设卡：该工作区的会话默认使用这张卡（会话级切换仍然优先）。",
+      wsFollow: "跟随默认卡",
+      wsEmpty: "还没有工作区记录——在会话页新建/选择一个工作区后，这里会出现它的设置。",
+      wsName: "工作区"
     };
     var en = {
       nav: "Persona Card",
@@ -120,7 +125,12 @@ window.__ModuleLoader__.load({
       memoryMaxCharsHint: "Cap for the injected section (chars); use memory_read for the full text.",
       memoryMaxBytesHint: "Max size of one memory file.",
       switchLabel: "Persona",
-      switchTitle: "Switch this session's persona (session-level, overrides the default card)"
+      switchTitle: "Switch this session's persona (session-level, overrides workspace/default)",
+      wsTitle: "Workspace personas",
+      wsHint: "Assign a persona card per workspace: sessions of that workspace use it by default (session-level switching still wins).",
+      wsFollow: "Follow default",
+      wsEmpty: "No workspace records yet — create/select a workspace in the session page and its setting appears here.",
+      wsName: "Workspace"
     };
 
     var MEMORY_FIELDS = [
@@ -158,6 +168,21 @@ window.__ModuleLoader__.load({
       var cards = value.cards && typeof value.cards === "object" ? value.cards : {};
       var cardNames = Object.keys(cards).sort();
       var active = typeof value.active === "string" ? value.active : "";
+      var wsList = Array.isArray(value.workspaceList) ? value.workspaceList : [];
+      var wsMap = value.workspaces && typeof value.workspaces === "object" ? value.workspaces : {};
+
+      function onWsChange(path, v) {
+        var next = Object.assign({}, wsMap);
+        if (v === "") delete next[path];
+        else next[path] = v;
+        setBusy(true); setNotice0();
+        scope.set("workspaces", next).then(function () {
+          setBusy(false); setNotice(t("saved"));
+          if (scope.load) scope.load();
+        }).catch(function (e) {
+          setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
+        });
+      }
 
       function setNotice0() { setNotice(null); setError(null); }
 
@@ -295,6 +320,28 @@ window.__ModuleLoader__.load({
                     h("button", { type: "button", className: "__sm_btn", onClick: function () { onEditCard(n); }, disabled: busy }, t("editCard")),
                     n === active ? null : h("button", { type: "button", className: "__sm_btn", onClick: function () { onSetActive(n); }, disabled: busy }, t("setDefault")),
                     h("button", { type: "button", className: "__sm_btn __sm_btnDanger", onClick: function () { onDeleteCard(n); }, disabled: busy }, t("deleteCard"))
+                  );
+                })
+              )
+        ),
+
+        // ── per-workspace persona mapping ────────────────────────────────
+        h("div", { className: "__sm_group" },
+          h("p", { className: "__sm_label", style: { margin: 0 } }, t("wsTitle")),
+          h("p", { className: "__sm_hint", style: { margin: "0 0 2px" } }, t("wsHint")),
+          wsList.length === 0
+            ? h("p", { className: "__sm_hint" }, t("wsEmpty"))
+            : h("div", { className: "__sm_cardList" },
+                wsList.map(function (ws) {
+                  var current = wsMap[ws.path] || "";
+                  if (current && current !== "none" && !(current in cards)) current = "";
+                  return h("label", { key: ws.path, className: "__sm_field" },
+                    h("span", { className: "__sm_label", title: ws.path }, (ws.title || ws.path)),
+                    h("select", { className: "__sm_input", value: current, onChange: function (e) { onWsChange(ws.path, e.target.value); } },
+                      h("option", { value: "" }, t("wsFollow")),
+                      h("option", { value: "none" }, t("noneOption")),
+                      cardNames.map(function (n) { return h("option", { key: n, value: n }, n); })
+                    )
                   );
                 })
               )

@@ -23,7 +23,8 @@ Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai
     resetting every time.
   - The memory is also injected as a `soul:memory` prompt section (capped)
     so the agent always sees its memories.
-- **Resolution** per prompt assembly: `session choice (chat switcher) > default card > none`. Switching applies from the next turn — no restart.
+- **Resolution** per prompt assembly: `session choice (chat switcher) > workspace mapping > default card > none`. Switching applies from the next turn — no restart.
+- **Workspace personas (v0.5.2)**: Settings → 人设卡 lists every workspace with a card dropdown — sessions of that workspace use the assigned card by default (session-level switching still wins). Workspaces come from dsh's durable workspace registry, so no paths to type.
 
 ## Install
 
@@ -54,6 +55,8 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 | `cards` | `{}` | Persona cards: name → markdown content (managed from the UI). |
 | `active` | `''` | Default card name; empty disables the persona by default. |
 | `sessions` | `{}` | Per-session choice (sessionId → card name / `none` / `''`); written by the chat switcher. |
+| `workspaces` | `{}` | Per-workspace choice (workspace path → card name / `none` / `''`); written from the settings page. |
+| `workspaceList` | `[]` | Read-only workspace list (path + title), maintained by the host from dsh's workspace registry. |
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` refuse to exceed this size. |
 | `memory.inject` | `true` | Render the memory as the `soul:memory` prompt section. |
 | `memory.injectMaxChars` | `8000` | Cap for the injected section (from the file head). |

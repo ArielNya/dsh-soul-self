@@ -92,7 +92,11 @@ window.__ModuleLoader__.load({
       wsHint: "给每个工作区指定人设卡：该工作区的会话默认使用这张卡（会话级切换仍然优先）。",
       wsFollow: "跟随默认卡",
       wsEmpty: "还没有工作区记录——在会话页新建/选择一个工作区后，这里会出现它的设置。",
-      wsName: "工作区"
+      wsName: "工作区",
+      fieldMemoryInject: "注入为 soul:memory 提示词段落",
+      fieldMemoryInjectMaxChars: "注入字符上限",
+      fieldMemoryMaxBytes: "记忆文件大小上限",
+      cardNamePlaceholder: "希希芙"
     };
     var en = {
       nav: "Persona Card",
@@ -130,13 +134,17 @@ window.__ModuleLoader__.load({
       wsHint: "Assign a persona card per workspace: sessions of that workspace use it by default (session-level switching still wins).",
       wsFollow: "Follow default",
       wsEmpty: "No workspace records yet — create/select a workspace in the session page and its setting appears here.",
-      wsName: "Workspace"
+      wsName: "Workspace",
+      fieldMemoryInject: "Inject as soul:memory prompt section",
+      fieldMemoryInjectMaxChars: "Inject char cap",
+      fieldMemoryMaxBytes: "Memory file size cap",
+      cardNamePlaceholder: "Xixifu"
     };
 
     var MEMORY_FIELDS = [
-      { key: "inject", label: "注入为 soul:memory 提示词段落", type: "checkbox", hint: "memoryInjectHint" },
-      { key: "injectMaxChars", label: "注入字符上限", type: "number", hint: "memoryMaxCharsHint" },
-      { key: "maxBytes", label: "记忆文件大小上限", type: "number", hint: "memoryMaxBytesHint" }
+      { key: "inject", label: "fieldMemoryInject", type: "checkbox", hint: "memoryInjectHint" },
+      { key: "injectMaxChars", label: "fieldMemoryInjectMaxChars", type: "number", hint: "memoryMaxCharsHint" },
+      { key: "maxBytes", label: "fieldMemoryMaxBytes", type: "number", hint: "memoryMaxBytesHint" }
     ];
     var MEMORY_DEFAULTS = { inject: true, injectMaxChars: 8000, maxBytes: 1048576 };
 
@@ -281,7 +289,7 @@ window.__ModuleLoader__.load({
           h("label", { className: "__sm_field" },
             h("span", { className: "__sm_label" }, t("cardName")),
             h("span", { className: "__sm_hint" }, t("cardNameHint")),
-            h("input", { className: "__sm_input", type: "text", value: cardDraft.name, placeholder: "希希芙", onChange: function (e) { setCardDraft(function (p) { return Object.assign({}, p, { name: e.target.value }); }); setNotice0(); } })
+            h("input", { className: "__sm_input", type: "text", value: cardDraft.name, placeholder: t("cardNamePlaceholder"), onChange: function (e) { setCardDraft(function (p) { return Object.assign({}, p, { name: e.target.value }); }); setNotice0(); } })
           ),
           h("label", { className: "__sm_field" },
             h("span", { className: "__sm_label" }, t("cardContent")),
@@ -356,13 +364,13 @@ window.__ModuleLoader__.load({
               return h("label", { key: f.key, className: "__sm_field" },
                 h("span", { className: "__sm_row" },
                   h("input", { className: "__sm_check", type: "checkbox", checked: Boolean(memDraftValue(f)), onChange: function (e) { setMemField(f, e.target.checked); } }),
-                  h("span", { className: "__sm_label" }, f.label)
+                  h("span", { className: "__sm_label" }, t(f.label))
                 ),
                 f.hint ? h("span", { className: "__sm_hint" }, t(f.hint)) : null
               );
             }
             return h("label", { key: f.key, className: "__sm_field" },
-              h("span", { className: "__sm_label" }, f.label),
+              h("span", { className: "__sm_label" }, t(f.label)),
               h("input", { className: "__sm_input", type: "number", value: memDraftValue(f), onChange: function (e) { setMemField(f, e.target.value); } }),
               f.hint ? h("span", { className: "__sm_hint" }, t(f.hint)) : null
             );

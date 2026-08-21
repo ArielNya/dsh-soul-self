@@ -73,12 +73,14 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
   syntax; unknown variables fail rendering (no escape syntax yet).
 - Persona/memory sections resolve per assembly, so steady cards stay
   byte-identical (KV-cache friendly) and edits hot-apply.
-- The settings section needs the `dsh-host-apiproxy` namespace allowlist;
-  the plugin patches it automatically on first start — **restart `dsh web`
-  once more** and the section appears.
+- DSH exposes the registered `soul-md` settings namespace directly; the plugin
+  does not modify files in the host installation.
 - Suggest putting work-quality rules in the card (e.g. "task quality first")
   so roleplay never degrades real work.
-- Tested against DSH `0.1.0-rc.6`, `0.1.0-rc.7`, `0.1.0-rc.8`, and `0.1.1-rc.1`.
+- Version 0.5.8 and newer require DSH `0.1.0-rc.7` or newer and are tested
+  against `0.1.0-rc.7`, `0.1.0-rc.8`, and `0.1.1-rc.1`.
+- DSH `0.1.0-rc.6` users must pin `dsh-soul-md@0.5.6`, the last release
+  carrying the legacy settings-allowlist compatibility patch.
 
 ## License
 

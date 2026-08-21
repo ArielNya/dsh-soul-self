@@ -37,7 +37,6 @@ import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { ensureSettingsNamespaceExposed } from "./vendor/dsh-settings-expose.js";
 
 /** Cordis plugin name. */
 const name = "soul-md";
@@ -274,12 +273,6 @@ function apply(ctx, config) {
       startWorkspaceWatch();
     },
   });
-
-  // dsh-host-apiproxy hard-codes which settings namespaces the Web client may
-  // see; without this, the settings section answers `settings-not-exposed`
-  // on any stock install. Patch the allowlist idempotently (self-heals after
-  // dsh updates overwrite the file).
-  ensureSettingsNamespaceExposed(ctx, "soul-md", ctx.logger);
 
   // ── one-time migration from the legacy file-based layout ──────────────────
   // When no cards exist yet and the legacy `path` card file is readable,

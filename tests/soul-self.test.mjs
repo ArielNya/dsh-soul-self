@@ -13,8 +13,9 @@ import {
   stripStubMarker,
 } from "../soul-lib.js";
 
-
 const source = await readFile(new URL("../index.js", import.meta.url), "utf8");
+const client = await readFile(new URL("../client.js", import.meta.url), "utf8");
+const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
 test("stub detection", () => {
   assert.equal(isStub(STUB_CARD), true);
@@ -71,11 +72,14 @@ test("never mounts complete:true", () => {
   assert.match(source, /Never pass the complete flag/);
 });
 
-
-
 test("soul_update requires a reason and prefers patch", () => {
   assert.match(source, /reason[\s\S]*required:\s*true/);
   assert.match(source, /mode === "patch"/);
   assert.match(source, /mode === "replace"/);
   assert.doesNotMatch(source, /required:\s*false/);
+});
+
+test("client ModuleLoader id matches package name", () => {
+  assert.equal(pkg.name, "dsh-soul-self");
+  assert.match(client, /window\.__ModuleLoader__\.load\(\{\s*id:\s*"dsh-soul-self"/);
 });

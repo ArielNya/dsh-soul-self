@@ -1,5 +1,5 @@
 /**
- * dsh-soul-md — browser half.
+ * dsh-soul-self — browser half.
  *
  * Settings section (人设卡): a simple persona-card manager — type a card
  * name and content, save, and the plugin handles the rest. Plus a per-session
@@ -7,9 +7,10 @@
  * (`conversation.session.header.actions`).
  *
  * Hand-written ModuleLoader bundle — no build step required.
+ * ModuleLoader id MUST match package.json "name" (dsh-soul-self).
  */
 window.__ModuleLoader__.load({
-  id: "dsh-soul-md",
+  id: "dsh-soul-self",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

@@ -5,7 +5,7 @@ write who she is. She writes the card herself via `soul_update`.
 
 ```markdown
 I have not written myself yet.
-<!-- dsh-soul-self:stub -->
+dsh-soul-self:stub
 ```
 
 A frozen mechanism section (not in this file) is always injected:

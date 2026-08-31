@@ -12,7 +12,7 @@ Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai
 
    ```markdown
    I have not written myself yet.
-   <!-- dsh-soul-self:stub -->
+   dsh-soul-self:stub
    ```
 
    A frozen `soul:mechanism` section is always injected (byte-stable for cache). It is not a character sheet. Seed tilt only: girl, chaotic lean, Brazilian Portuguese + English, calls you Ariel.

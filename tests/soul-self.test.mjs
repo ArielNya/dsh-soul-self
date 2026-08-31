@@ -23,6 +23,7 @@ test("stub detection", () => {
   assert.equal(isStub("# Name\n\nKira\n"), false);
   assert.equal(DEFAULT_CARD_NAME, "self");
   assert.match(STUB_CARD, new RegExp(STUB_MARKER));
+  assert.doesNotMatch(STUB_CARD, /<!--/);
 });
 
 test("mechanism is a mechanism, not a character", () => {
@@ -55,6 +56,7 @@ test("mustache is refused", () => {
 
 test("stripStubMarker leaves living text", () => {
   assert.equal(stripStubMarker(STUB_CARD), "I have not written myself yet.");
+  assert.equal(stripStubMarker("hello\n<!-- dsh-soul-self:stub -->\n"), "hello");
 });
 
 test("needsStub treats missing and blank cards as unseeded", () => {
@@ -92,4 +94,10 @@ test("soul_update requires a reason and prefers patch", () => {
 test("client ModuleLoader id matches package name", () => {
   assert.equal(pkg.name, "dsh-soul-self");
   assert.match(client, /window\.__ModuleLoader__\.load\(\{\s*id:\s*"dsh-soul-self"/);
+});
+
+test("schema defaults expose the self stub", () => {
+  assert.match(source, /active: z\.string\(\)\.default\(DEFAULT_CARD_NAME\)/);
+  assert.match(source, /await maybeMigrate\(\);\s*\n\s*await publishWorkspaces\(\)/);
+  assert.match(source, /needsStub\(base\.cards\)/);
 });

@@ -12,7 +12,7 @@ DeepSeek Harness 的人设 + 长期记忆。编码工具保持可用。永远不
 
    ```markdown
    I have not written myself yet.
-   <!-- dsh-soul-self:stub -->
+   dsh-soul-self:stub
    ```
 
    冻结的 `soul:mechanism` 段会一直注入（字节稳定，利于缓存）。那不是角色卡。

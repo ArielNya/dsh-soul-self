@@ -57,9 +57,11 @@ const MEMORY_DIR = join("soul-md", "memory");
 const Config = z.object({
   // ── v0.5: plugin-managed persona cards ───────────────────────────────────
   /** Persona cards: card name -> markdown content. */
-  cards: z.dict(z.string(), z.string()).default({}),
+  cards: z.dict(z.string(), z.string()).default({
+    [DEFAULT_CARD_NAME]: STUB_CARD,
+  }),
   /** Default card name (used when the session has no explicit choice). */
-  active: z.string().default(""),
+  active: z.string().default(DEFAULT_CARD_NAME),
   /** Per-session choice: sessionId -> card name, "none", or "" (follow default). */
   sessions: z.dict(z.string(), z.string()).default({}),
   /** Per-workspace choice: workspace path -> card name, "none", or "" (follow default). */
@@ -165,13 +167,20 @@ function apply(ctx, config) {
       if (choice === CHOICE_NONE) return null;
       if (typeof choice === "string" && choice && c.cards?.[choice] !== void 0) return choice;
     }
-    return c.active && c.cards?.[c.active] !== void 0 ? c.active : null;
+    return c.active && c.cards?.[c.active] !== void 0
+      ? c.active
+      : (needsStub(c.cards) ? DEFAULT_CARD_NAME : null);
   };
 
   const resolveCard = (agent) => {
     const cardName = cardNameOf(agent);
     if (!cardName) return { name: null, text: null };
-    return { name: cardName, text: cfg().cards[cardName] ?? null };
+    const text = cfg().cards?.[cardName];
+    if (typeof text === "string" && text.trim()) return { name: cardName, text };
+    if (cardName === DEFAULT_CARD_NAME && needsStub(cfg().cards)) {
+      return { name: DEFAULT_CARD_NAME, text: STUB_CARD };
+    }
+    return { name: cardName, text: text ?? null };
   };
 
   /** Managed memory directory (created on demand). */
@@ -277,9 +286,11 @@ function apply(ctx, config) {
     },
     onChange: () => {
       registerSections();
-      void maybeMigrate();
-      void publishWorkspaces();
-      startWorkspaceWatch();
+      void (async () => {
+        await maybeMigrate();
+        await publishWorkspaces();
+        startWorkspaceWatch();
+      })();
     },
   });
 
@@ -299,17 +310,14 @@ function apply(ctx, config) {
   };
   const maybeMigrate = async () => {
     try {
-      if (migrated) return;
       const settings = ctx.get("settings");
       if (!settings) return;
-      migrated = true;
       const c = cfg();
       if (needsStub(c.cards)) {
         const legacy = legacyFileOf();
         if (legacy) {
           const text = await readFile(legacy, "utf8");
-          const next = { ...c, cards: { 默认: text }, active: "默认" };
-          await settings.update(NS, next);
+          await settings.update(NS, { ...c, cards: { 默认: text }, active: "默认" });
           ctx.logger.info("[soul-self] imported legacy persona card as 默认");
         } else {
           await settings.update(NS, {
@@ -320,6 +328,8 @@ function apply(ctx, config) {
           ctx.logger.info("[soul-self] seeded mechanism stub card `self`");
         }
       }
+      if (migrated) return;
+      migrated = true;
       const managedGlobal = memoryFileFor(null);
       if (readCached(managedGlobal) === null) {
         const legacyMem = legacyMemoryFileOf();
@@ -340,11 +350,6 @@ function apply(ctx, config) {
       ctx.logger.warn(`[soul-self] legacy migration skipped: ${String(error)}`);
     }
   };
-
-  ctx.effect(() => {
-    void maybeMigrate();
-    return () => {};
-  }, "soul-md.seed()");
 
   // ── workspace list (host-maintained, for the per-workspace persona UI) ─────
   const computeWorkspaceList = () => {
@@ -396,8 +401,16 @@ function apply(ctx, config) {
         scheduleWsRetry();
         return;
       }
+      await maybeMigrate();
       const base = cfg();
-      await settings.update(NS, { ...base, workspaceList: list }).catch((error) => {
+      const seeded = needsStub(base.cards)
+        ? {
+          ...base,
+          cards: { [DEFAULT_CARD_NAME]: STUB_CARD },
+          active: DEFAULT_CARD_NAME,
+        }
+        : base;
+      await settings.update(NS, { ...seeded, workspaceList: list }).catch((error) => {
         ctx.logger.warn(`[soul-self] workspace list write failed: ${String(error)}`);
       });
       wsRetryCount = 0;

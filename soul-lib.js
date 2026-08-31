@@ -20,7 +20,7 @@ Only record traits that showed up in real turns.
 `;
 
 export const STUB_CARD = `I have not written myself yet.
-<!-- ${STUB_MARKER} -->
+dsh-soul-self:stub
 `;
 
 export const BOOTSTRAP_TEXT = `Your first job is to exist.
@@ -51,6 +51,7 @@ export function rejectMustache(text) {
 export function stripStubMarker(text) {
   return String(text ?? "")
     .replace(/<!--\s*dsh-soul-self:stub\s*-->\s*/g, "")
+    .replace(/^[ \t]*dsh-soul-self:stub[ \t]*\r?\n?/gm, "")
     .trim();
 }
 

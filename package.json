@@ -1,65 +1,63 @@
 {
-    "name":  "dsh-soul-md",
-    "version":  "0.5.9",
-    "description":  "DeepSeek Harness 的 soul.md 风格人设 + 长期记忆插件：设置页输入人设卡名称和内容即可，文件由插件自动管理；可按工作区指定人设、聊天框可给会话单独切人设；AI 可自行演化人设与记忆（soul_read/soul_update/memory_*）。",
-    "type":  "module",
-    "main":  "index.js",
-    "exports":  {
-                    ".":  "./index.js",
-                    "./client":  "./client.js",
-                    "./package.json":  "./package.json"
+    "name": "dsh-soul-self",
+    "version": "0.6.0",
+    "description": "DeepSeek Harness soul plugin fork: mechanism stub + self-written persona via soul_update, long-term memory, coding tools kept. The user does not write a character bible.",
+    "type": "module",
+    "main": "index.js",
+    "exports": {
+                    ".": "./index.js",
+                    "./client": "./client.js",
+                    "./package.json": "./package.json"
                 },
-    "dsh":  {
-                "bundle":  {
-                               "patch":  "./cordis.patch.yml"
+    "dsh": {
+                "bundle": {
+                               "patch": "./cordis.patch.yml"
                            },
-                "client":  {
-                               "platform":  "web"
+                "client": {
+                               "platform": "web"
                            }
             },
-    "files":  [
+    "files": [
                   "index.js",
+                  "soul-lib.js",
                   "client.js",
                   "cordis.patch.yml",
                   "README.md",
                   "README.zh.md",
                   "LICENSE",
-                  "examples",
-                  "vendor"
+                  "examples"
               ],
-    "homepage":  "https://github.com/Scorp1o117/dsh-soul-md",
-    "keywords":  [
+    "homepage": "https://github.com/ArielNya/dsh-soul-self",
+    "keywords": [
                      "dsh",
                      "dsh-plugin",
                      "deepseek-harness",
                      "persona",
                      "soul",
                      "memory",
-                     "roleplay",
-                     "system-prompt"
+                     "self-evolving"
                  ],
-    "license":  "MIT",
-    "engines":  {
-                    "node":  "\u003e=20.18"
+    "license": "MIT",
+    "engines": {
+                    "node": ">=20.18"
                 },
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/Scorp1o117/dsh-soul-md.git"
+    "repository": {
+                       "type": "git",
+                       "url": "git+https://github.com/ArielNya/dsh-soul-self.git"
                    },
-    "bugs":  {
-                 "url":  "https://github.com/Scorp1o117/dsh-soul-md/issues"
+    "bugs": {
+                 "url": "https://github.com/ArielNya/dsh-soul-self/issues"
              },
-    "dependencies":  {
-                         "@deepseek-ai/schemastery":  "^3.18.1"
+    "dependencies": {
+                         "@deepseek-ai/schemastery": "^3.18.1"
                      },
-    "peerDependencies":  {
-                             "react":  "^18.2.0",
-                             "@deepseek-ai/dsh-home-paths":  "^0.1.0-rc.7 || ^0.1.1-rc.1",
-                             "@deepseek-ai/dsh-settings":  "^0.1.0-rc.7 || ^0.1.1-rc.1",
-                             "@deepseek-ai/dsh-tools":  "^0.1.0-rc.7 || ^0.1.1-rc.1"
+    "peerDependencies": {
+                             "react": "^18.2.0",
+                             "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.7 || ^0.1.1-rc.1",
+                             "@deepseek-ai/dsh-settings": "^0.1.0-rc.7 || ^0.1.1-rc.1",
+                             "@deepseek-ai/dsh-tools": "^0.1.0-rc.7 || ^0.1.1-rc.1"
                          },
-    "scripts":  {
-                    "test":  "node tests/settings-scope-compat.test.mjs"
+    "scripts": {
+                    "test": "node --test tests/*.test.mjs"
                 }
 }
-

@@ -1,88 +1,83 @@
-# dsh-soul-md
+# dsh-soul-self
 
-[![中文文档](https://img.shields.io/badge/%E4%B8%AD%E6%96%87%E6%96%87%E6%A1%A3-blue)](README.zh.md)
+Fork of [dsh-soul-md](https://github.com/Scorp1o117/dsh-soul-md) for one girl who writes her own card. You do not author a personality.
 
-**GitHub**: [Scorp1o117/dsh-soul-md](https://github.com/Scorp1o117/dsh-soul-md) · **npm**: [dsh-soul-md](https://www.npmjs.com/package/dsh-soul-md)
+**GitHub**: [ArielNya/dsh-soul-self](https://github.com/ArielNya/dsh-soul-self)
 
-[![Enhancement Suite](https://img.shields.io/badge/part%20of-Enhancement%20Suite-3964fe)](https://github.com/Scorp1o117/dsh-enhancement-suite) [![npm](https://img.shields.io/npm/v/dsh-enhancement-suite)](https://www.npmjs.com/package/dsh-enhancement-suite)
+Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Coding tools stay on. `complete: true` is never mounted.
 
-Part of the [DeepSeek Harness Enhancement Suite](https://github.com/Scorp1o117/dsh-enhancement-suite) — Vision · Soul/Persona · Long-term Memory · Plugin Marketplace.
+## What this fork changes
 
-Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — **zero file management**:
+1. **Mechanism stub.** On first run, if there are no cards, the plugin seeds a card named `self`:
 
-> In Settings → 人设卡, type a card **name** and its **content**, hit save. The plugin manages everything else.
+   ```markdown
+   <!-- dsh-soul-self:stub -->
+   I have not written myself yet.
+   ```
 
-## What you get
+   A frozen `soul:mechanism` section is always injected (byte-stable for cache). It is not a character sheet.
 
-- **Persona cards** — the card content is rendered into the system prompt as
-  the `soul:persona` section. Multiple cards are supported; pick a default,
-  and switch per chat from the **conversation header** (a "人设" select).
-- **Long-term memory** — the agent gets five tools:
-  - `memory_append` / `memory_read` / `memory_rewrite` — a persistent memory
-    file (Agent.md / memory.md style). The active persona card has its own
-    memory; otherwise the global memory is used.
-  - `soul_read` / `soul_update` — the AI reads and **evolves its own persona
-    card**: when it notices a stable trait, preference, or value of its own,
-    it folds it into the card. It "grows" across sessions instead of
-    resetting every time.
-  - The memory is also injected as a `soul:memory` prompt section (capped)
-    so the agent always sees its memories.
-- **Resolution** per prompt assembly: `session choice (chat switcher) > workspace mapping > default card > none`. Switching applies from the next turn — no restart.
-- **Workspace personas (v0.5.2)**: Settings → 人设卡 lists every workspace with a card dropdown — sessions of that workspace use the assigned card by default (session-level switching still wins). Workspaces come from dsh's durable workspace registry, so no paths to type.
+2. **Bootstrap once.** While the stub marker is still in the card, extra bootstrap text is appended to `soul:persona`. After the first real `soul_update`, bootstrap stays off.
+
+3. **Hard rules in code.**
+   - `soul_update` defaults to **patch** (one `##` heading). `replace` is for the first write off the stub or a rare consolidation.
+   - `reason` is required. Only traits that showed up in real turns.
+   - `{{` / `}}` are refused.
+   - Soul cap is 8 KiB.
+   - Facts about Alice go in `memory_append`, not the soul.
 
 ## Install
 
-The plugin is a plain Cordis row. Mount it in a profile patch
-(`$DSH_HOME/profiles/<name>/cordis.patch.yml`):
+```bash
+dsh plugin --profile web add github:ArielNya/dsh-soul-self
+```
+
+Or a local checkout:
+
+```bash
+dsh plugin --profile web add /path/to/dsh-soul-self
+```
+
+Restart `dsh web`. Open **Settings → Persona Card**. You should see `self` already there. Do not paste a character bible.
+
+The bundle patch mounts:
 
 ```yaml
 - insert:
     - id: soul-md
-      name: 'dsh-soul-md'          # after: pnpm add dsh-soul-md in the profile
+      name: 'dsh-soul-self'
 ```
 
-Then restart `dsh web` and open **Settings → 人设卡**: type a name + content, save.
+Cordis id stays `soul-md` so the settings namespace and UI keep working.
 
-## Where things live (you don't need to care, but for reference)
+## Two presets, one soul
 
-- Persona cards: stored in the `soul-md` settings namespace (`settings.yaml`),
-  as `cards: { name -> markdown }` + `active` + per-session `sessions`.
-- Memory files: plugin-managed under `$DSH_HOME/soul-md/memory/`
-  (`global.md` + one file per card), created on demand.
-- Upgrading from ≤ v0.4 (file-based)? The plugin **auto-imports** the old
-  `path` card (as "默认") and the old memory file on first run.
+`work` and `home` must use the **same** card (`self`) and the **same** memory directory (`$DSH_HOME/soul-md/memory/`). Two moods. One person.
 
-## Config
-
-| Field | Default | Meaning |
+| Preset | Use | Banter |
 |---|---|---|
-| `cards` | `{}` | Persona cards: name → markdown content (managed from the UI). |
-| `active` | `''` | Default card name; empty disables the persona by default. |
-| `sessions` | `{}` | Per-session choice (sessionId → card name / `none` / `''`); written by the chat switcher. |
-| `workspaces` | `{}` | Per-workspace choice (workspace path → card name / `none` / `''`); written from the settings page. |
-| `workspaceList` | `[]` | Read-only workspace list (path + title), maintained by the host from dsh's workspace registry. |
-| `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` refuse to exceed this size. |
-| `memory.inject` | `true` | Render the memory as the `soul:memory` prompt section. |
-| `memory.injectMaxChars` | `8000` | Cap for the injected section (from the file head). |
-| `memory.order` | `0.5` | Prompt section order for the injected memory section. |
-| legacy fields | — | `path`, `fallback`, `order`, `complete`, `watch`, `debounceMs`, `soulMaxBytes`, `personas`, `roster`, `memory.path`… kept so old composition entries and settings still validate; only used for the one-time import. |
+| `work` | coding | low |
+| `home` | hanging out | normal |
 
-## Notes
+Do not install `dsh-humanized-deepseek-maid`, `dsh-companion`, `dsh-plugin-memory`, or a second soul plugin alongside this. They fight over identity.
 
-- **Never write `{{` / `}}` in a card body** — they are prompt-variable
-  syntax; unknown variables fail rendering (no escape syntax yet).
-- Persona/memory sections resolve per assembly, so steady cards stay
-  byte-identical (KV-cache friendly) and edits hot-apply.
-- DSH exposes the registered `soul-md` settings namespace directly; the plugin
-  does not modify files in the host installation.
-- Suggest putting work-quality rules in the card (e.g. "task quality first")
-  so roleplay never degrades real work.
-- Version 0.5.8 and newer require DSH `0.1.0-rc.7` or newer and are tested
-  against `0.1.0-rc.7`, `0.1.0-rc.8`, and `0.1.1-rc.1`.
-- DSH `0.1.0-rc.6` users must pin `dsh-soul-md@0.5.6`, the last release
-  carrying the legacy settings-allowlist compatibility patch.
+## First session
+
+Open `home`. Do not paste a card. Talk. Do a small real task. Leave. Come back. Then check the card: `soul_update` should have fired and the stub marker should be gone. If it is still the stub, the tool is not firing — fix that. Do not write her personality for her.
+
+## Tools
+
+- `soul_read` / `soul_update` — her card
+- `memory_append` / `memory_read` / `memory_rewrite` — shared life / project facts
+
+Resolution: `session choice > workspace mapping > default card > none`.
+
+## Config notes
+
+Same settings namespace as upstream (`soul-md`). `complete` in config is ignored. `soulMaxBytes` defaults to 8192.
+
+Never write `{{` / `}}` in a card body.
 
 ## License
 
-MIT
-
+MIT. Upstream: Scorp1o117/dsh-soul-md.

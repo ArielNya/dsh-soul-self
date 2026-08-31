@@ -58,20 +58,20 @@ window.__ModuleLoader__.load({
     var inject = ["slots", "locale", "settingsScope"];
     var zh = {
       nav: "人设卡",
-      intro: "输入人设卡名称和内容，保存后插件自动管理——文件路径、记忆存放都不用管。人设按 会话选择 → 默认卡 解析，聊天框标题栏可随时切换。",
+      intro: "不要写人设圣经。插件会种一张空的 self 卡；她用 soul_update 自己写自己。你只负责一起说话、一起写代码。",
       cardListTitle: "人设卡",
-      cardListHint: "卡片内容会注入系统提示词；聊天框标题栏可给每个会话单独选卡。",
+      cardListHint: "卡片内容会注入系统提示词；聊天框标题栏可给每个会话单独选卡。work / home 应指向同一张卡。",
       cardName: "人设卡名称",
-      cardNameHint: "给这张人设卡起个名字（如：希希芙、工作狂助手）。",
+      cardNameHint: "默认卡名是 self。不要另写一张性格卡。",
       cardContent: "人设卡内容（Markdown）",
-      cardContentHint: "角色设定、说话风格、工作准则……AI 会用 soul_read / soul_update 自己读和演化这张卡。",
+      cardContentHint: "种子只有「我还没写下自己」。AI 用 soul_read / soul_update 自己演化。你几乎不该手改。",
       saveCard: "保存人设卡",
       save: "保存",
       editCard: "编辑",
       deleteCard: "删除",
       setDefault: "设为默认",
       defaultBadge: "默认",
-      emptyCards: "还没有人设卡——先在上面保存一张吧。",
+      emptyCards: "还没有人设卡——重启后插件会自动种一张 self 种子卡。",
       noActive: "（未设置默认卡，人设未启用）",
       activeHint: "没有会话级选择时使用的人设卡；选「不启用」则默认关闭人设。",
       noneOption: "不启用",
@@ -96,24 +96,24 @@ window.__ModuleLoader__.load({
       fieldMemoryInject: "注入为 soul:memory 提示词段落",
       fieldMemoryInjectMaxChars: "注入字符上限",
       fieldMemoryMaxBytes: "记忆文件大小上限",
-      cardNamePlaceholder: "希希芙"
+      cardNamePlaceholder: "self"
     };
     var en = {
       nav: "Persona Card",
-      intro: "Type a persona card name and content, hit save — the plugin manages everything else (files, memory locations). Persona resolves as session choice > default card; switch per chat from the conversation header.",
+      intro: "Do not write a character bible. The plugin seeds an empty self card; she writes herself with soul_update. You talk and ship code with her.",
       cardListTitle: "Persona cards",
-      cardListHint: "Card content is injected into the system prompt; pick one per chat from the conversation header.",
+      cardListHint: "Card content is injected into the system prompt; pick one per chat from the conversation header. work / home should share the same card.",
       cardName: "Card name",
-      cardNameHint: "A name for this card (e.g. 希希芙, workaholic-assistant).",
+      cardNameHint: "The default card is named self. Do not author a second personality card.",
       cardContent: "Card content (Markdown)",
-      cardContentHint: "Role, speaking style, work rules… the AI reads and evolves this card itself via soul_read / soul_update.",
+      cardContentHint: "The seed is only \"I have not written myself yet.\" The AI reads and evolves it via soul_read / soul_update. You should almost never edit this by hand.",
       saveCard: "Save card",
       save: "Save",
       editCard: "Edit",
       deleteCard: "Delete",
       setDefault: "Set default",
       defaultBadge: "default",
-      emptyCards: "No persona cards yet — save one above first.",
+      emptyCards: "No persona cards yet — on first run the plugin seeds a self stub.",
       noActive: "(no default card; persona disabled)",
       activeHint: "The card used when a session has no explicit choice; pick \"disabled\" to turn the persona off by default.",
       noneOption: "Disabled",
@@ -138,7 +138,7 @@ window.__ModuleLoader__.load({
       fieldMemoryInject: "Inject as soul:memory prompt section",
       fieldMemoryInjectMaxChars: "Inject char cap",
       fieldMemoryMaxBytes: "Memory file size cap",
-      cardNamePlaceholder: "Xixifu"
+      cardNamePlaceholder: "self"
     };
 
     var MEMORY_FIELDS = [

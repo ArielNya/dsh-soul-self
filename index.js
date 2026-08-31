@@ -1,59 +1,55 @@
 /**
- * dsh-soul-md — soul.md-style persona + long-term memory for DeepSeek Harness.
+ * dsh-soul-self — fork of dsh-soul-md.
  *
- * PLUGIN-MANAGED (v0.5.0): the user never touches file paths. Persona cards
- * live in the `soul-md` settings namespace as `cards: { name -> markdown }`
- * plus an `active` default and a per-session `sessions` map; the settings
- * page offers a simple name + content form. Memory files are managed by the
- * plugin under `$DSH_HOME/soul-md/memory/` (`global.md` plus one file per
- * card) and are created on demand.
+ * Same plugin-managed cards + memory as upstream, with three plan rules:
+ *   1. A mechanism stub is the default card. The user does not write a character.
+ *   2. While that stub is still the card, a one-time bootstrap asks the agent
+ *      to exist, then write itself with soul_update. After the first real
+ *      write, bootstrap stays off so the system-prompt prefix stays stable.
+ *   3. Hard rules live in plugin code: soul_update prefers section patches,
+ *      refuses {{ }}, never mounts complete:true (that would strip coding
+ *      tools), and a frozen mechanism section is byte-stable for cache hits.
+ *
+ * PLUGIN-MANAGED: the user never touches file paths. Persona cards live in
+ * the `soul-md` settings namespace as `cards: { name -> markdown }` plus an
+ * `active` default and a per-session `sessions` map. Memory files live under
+ * `$DSH_HOME/soul-md/memory/` (`global.md` plus one file per card).
  *
  * Resolution per prompt assembly:
  *   persona: session choice (chat switcher) > workspace mapping > active default card > none
  *   memory:  card memory (<card>.md) > global memory (global.md)
- *
- * Workspace personas: the settings page assigns a card per workspace
- * (host-published `workspaceList` from the durable workspace registry); the
- * mapping is keyed by workspace path and resolved from the session's cwd.
- *
- * The `soul:persona` / `soul:memory` sections use FUNCTION text, which
- * dsh-system-prompt evaluates on every assembly with the agent context —
- * switching applies from the next turn, no restart, no watchers.
- *
- * GROWTH TOOLS: `soul_read` / `soul_update` read/rewrite the card ACTIVE for
- * the calling agent; `memory_append` / `memory_read` / `memory_rewrite`
- * operate on the agent's memory scope. The descriptions encourage the agent
- * to record what it learns and to fold stable traits into its persona.
- *
- * Legacy fields (`path`, `personas`, `roster`, `memory.path`, …) are kept in
- * the schema as no-ops so old composition entries and settings keep
- * validating; on first run the plugin imports the old `path` card and the
- * old memory file into the managed store.
  */
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, watch } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, dirname } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import {
+  BOOTSTRAP_TEXT,
+  DEFAULT_CARD_NAME,
+  MECHANISM_TEXT,
+  STUB_CARD,
+  STUB_MARKER,
+  isStub,
+  patchCard,
+  rejectMustache,
+  stripStubMarker,
+} from "./soul-lib.js";
 
-/** Cordis plugin name. */
+/** Cordis plugin name (kept as soul-md so settings NS / UI keep working). */
 const name = "soul-md";
 /** Services this plugin needs injected from the host tree. */
 const inject = ["systemPrompt", "tools"];
 /** Settings namespace owned by this plugin (Web UI settings section). */
 const NS = settingsNamespace("soul-md");
 
-/** Section names; deliberately distinct from the registry-owned `deployment:persona`. */
+const SECTION_MECHANISM = "soul:mechanism";
 const SECTION_PERSONA = "soul:persona";
 const SECTION_MEMORY = "soul:memory";
-/** Back-compat export name for the persona section. */
 const SECTION_NAME = SECTION_PERSONA;
-
-/** Session-choice value that disables the persona for that session. */
 const CHOICE_NONE = "none";
-/** Managed memory directory under the dsh home. */
 const MEMORY_DIR = join("soul-md", "memory");
 
 /** Runtime schema for the soul-md row. */
@@ -91,10 +87,11 @@ const Config = z.object({
   path: z.string().default(""),
   fallback: z.string().default(""),
   order: z.number().default(0),
+  /** Ignored. This fork never mounts complete:true (that strips coding tools). */
   complete: z.boolean().default(false),
   watch: z.boolean().default(true),
   debounceMs: z.number().default(300),
-  soulMaxBytes: z.number().default(64 * 1024),
+  soulMaxBytes: z.number().default(8 * 1024),
   personas: z.object({
     dir: z.string().default(""),
     workspaceFile: z.string().default(".dsh-persona.md"),
@@ -206,8 +203,16 @@ function apply(ctx, config) {
     return { text: "", source: target.scope, file: target.file };
   };
 
-  /** Render the persona section for one assembly. */
-  const renderPersona = (assembly) => resolveCard(assembly?.agent).text ?? "";
+  /** Frozen mechanism — always the same bytes. */
+  const renderMechanism = () => MECHANISM_TEXT;
+
+  /** Render the persona section for one assembly. Bootstrap only while the card is the stub. */
+  const renderPersona = (assembly) => {
+    const text = resolveCard(assembly?.agent).text ?? "";
+    if (!text) return "";
+    if (isStub(text)) return `${text.trim()}\n\n${BOOTSTRAP_TEXT}`;
+    return text;
+  };
 
   /** Render the memory section for one assembly. */
   const renderMemory = (assembly) => {
@@ -218,27 +223,32 @@ function apply(ctx, config) {
     const cap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
     let out = text;
     if (out.length > cap) {
-      out = out.slice(0, cap) + "\n\n> 记忆超出注入上限，可用 memory_read 读取全文 / memory exceeds the inject cap — use memory_read for the full text.";
+      out = out.slice(0, cap) + "\n\n> memory exceeds the inject cap — use memory_read for the full text.";
     }
     return out;
   };
 
   // ── prompt sections (function text: resolved per assembly, hot by nature) ──
-  const sectionDisposers = { persona: null, memory: null };
+  const sectionDisposers = { mechanism: null, persona: null, memory: null };
   function registerSections() {
-    if (sectionDisposers.persona) {
-      sectionDisposers.persona();
-      sectionDisposers.persona = null;
+    for (const key of Object.keys(sectionDisposers)) {
+      if (sectionDisposers[key]) {
+        sectionDisposers[key]();
+        sectionDisposers[key] = null;
+      }
     }
-    if (sectionDisposers.memory) {
-      sectionDisposers.memory();
-      sectionDisposers.memory = null;
-    }
+    sectionDisposers.mechanism = ctx.systemPrompt.section({
+      name: SECTION_MECHANISM,
+      order: -0.5,
+      text: renderMechanism,
+    });
+    // Never pass the complete flag — that would replace the whole system prompt
+    // and strip coding tool guidance.
+
     sectionDisposers.persona = ctx.systemPrompt.section({
       name: SECTION_PERSONA,
       order: cfg().order ?? 0,
       text: renderPersona,
-      ...(cfg().complete ? { complete: true } : {}),
     });
     sectionDisposers.memory = ctx.systemPrompt.section({
       name: SECTION_MEMORY,
@@ -250,13 +260,11 @@ function apply(ctx, config) {
   ctx.effect(() => {
     registerSections();
     return () => {
-      if (sectionDisposers.persona) {
-        sectionDisposers.persona();
-        sectionDisposers.persona = null;
-      }
-      if (sectionDisposers.memory) {
-        sectionDisposers.memory();
-        sectionDisposers.memory = null;
+      for (const key of Object.keys(sectionDisposers)) {
+        if (sectionDisposers[key]) {
+          sectionDisposers[key]();
+          sectionDisposers[key] = null;
+        }
       }
     };
   }, "soul-md.sections()");
@@ -275,15 +283,8 @@ function apply(ctx, config) {
   });
 
   // ── one-time migration from the legacy file-based layout ──────────────────
-  // When no cards exist yet and the legacy `path` card file is readable,
-  // import it as the "默认" card (and set it active); migrate the legacy
-  // memory file into the managed store as well. Runs from onChange: the
-  // settings inject callback fires it once the settings service is live (a
-  // boot-time ctx.effect can run before that and silently see no settings).
   let migrated = false;
   const legacyFileOf = () => {
-    // The legacy path may live in the settings layer or in the composition
-    // entry config (`config.path`); the settings layer is authoritative.
     const p = cfg().path || config.path;
     if (!p) return null;
     return isAbsolute(p) ? p : join(resolveDshHome(), p);
@@ -291,7 +292,6 @@ function apply(ctx, config) {
   const legacyMemoryFileOf = () => {
     const legacy = legacyFileOf();
     if (!legacy) return null;
-    // Legacy default: memory.md next to the soul card (v0.2–v0.4 behavior).
     const p = cfg().memory?.path || config.memory?.path || "memory.md";
     if (!p) return null;
     return isAbsolute(p) ? p : join(dirname(legacy), p);
@@ -300,7 +300,7 @@ function apply(ctx, config) {
     try {
       if (migrated) return;
       const settings = ctx.get("settings");
-      if (!settings) return; // not ready yet — retried on the next onChange
+      if (!settings) return;
       migrated = true;
       const c = cfg();
       if (!c.cards || Object.keys(c.cards).length === 0) {
@@ -309,7 +309,14 @@ function apply(ctx, config) {
           const text = await readFile(legacy, "utf8");
           const next = { ...c, cards: { 默认: text }, active: "默认" };
           await settings.update(NS, next);
-          ctx.logger.info("[soul-md] imported legacy persona card as 默认");
+          ctx.logger.info("[soul-self] imported legacy persona card as 默认");
+        } else {
+          await settings.update(NS, {
+            ...c,
+            cards: { [DEFAULT_CARD_NAME]: STUB_CARD },
+            active: DEFAULT_CARD_NAME,
+          });
+          ctx.logger.info("[soul-self] seeded mechanism stub card `self`");
         }
       }
       const managedGlobal = memoryFileFor(null);
@@ -321,7 +328,7 @@ function apply(ctx, config) {
             if (text.length > 0) {
               await mkdir(memoryDir(), { recursive: true });
               await writeFile(managedGlobal, text, "utf8");
-              ctx.logger.info("[soul-md] imported legacy memory file into the managed store");
+              ctx.logger.info("[soul-self] imported legacy memory file into the managed store");
             }
           } catch {
             /* legacy memory missing — nothing to import */
@@ -329,15 +336,11 @@ function apply(ctx, config) {
         }
       }
     } catch (error) {
-      ctx.logger.warn(`[soul-md] legacy migration skipped: ${String(error)}`);
+      ctx.logger.warn(`[soul-self] legacy migration skipped: ${String(error)}`);
     }
   };
 
   // ── workspace list (host-maintained, for the per-workspace persona UI) ─────
-  // Read from the durable workspace registry; refreshed on settings changes
-  // and when the sessions directory gains a workspace. The registry's async
-  // init (history bootstrap) may not be done when this plugin applies, so a
-  // not-ready registry yields null and publishWorkspaces retries until it is.
   const computeWorkspaceList = () => {
     try {
       const registry = ctx.get("workspaceRegistry");
@@ -351,7 +354,6 @@ function apply(ctx, config) {
         }))
         .filter((entry) => entry.path.length > 0);
     } catch {
-      // Registry exists but its async init has not completed yet — retry.
       return null;
     }
   };
@@ -364,7 +366,7 @@ function apply(ctx, config) {
   let wsRetryCount = 0;
   function scheduleWsRetry() {
     if (wsRetryTimer) return;
-    if (wsRetryCount > 300) return; // give up after ~5 minutes of unavailability
+    if (wsRetryCount > 300) return;
     wsRetryTimer = setTimeout(() => {
       wsRetryTimer = undefined;
       wsRetryCount += 1;
@@ -375,7 +377,7 @@ function apply(ctx, config) {
     try {
       const computed = computeWorkspaceList();
       if (computed === null) {
-        scheduleWsRetry(); // registry not ready yet
+        scheduleWsRetry();
         return;
       }
       const list = computed;
@@ -390,11 +392,11 @@ function apply(ctx, config) {
       }
       const base = cfg();
       await settings.update(NS, { ...base, workspaceList: list }).catch((error) => {
-        ctx.logger.warn(`[soul-md] workspace list write failed: ${String(error)}`);
+        ctx.logger.warn(`[soul-self] workspace list write failed: ${String(error)}`);
       });
       wsRetryCount = 0;
     } catch (error) {
-      ctx.logger.warn(`[soul-md] workspace list refresh failed: ${String(error)}`);
+      ctx.logger.warn(`[soul-self] workspace list refresh failed: ${String(error)}`);
     }
   }
   function startWorkspaceWatch() {
@@ -443,9 +445,9 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_append",
     description:
-      "Append a dated Markdown block to your long-term memory. The target follows your CURRENT scope: the memory of the persona card active for this session, else the global memory. Use it PROACTIVELY whenever you learn something worth keeping across sessions: user preferences and facts, decisions and their reasons, recurring patterns, project state, promises you made. Writing it down is what makes you grow instead of resetting every session. Prefer small, self-contained entries over one giant dump.",
+      "Append a dated Markdown block to your long-term memory. The target follows your CURRENT scope: the memory of the persona card active for this session, else the global memory. Use it PROACTIVELY whenever you learn something worth keeping across sessions: user preferences and facts, decisions and their reasons, recurring patterns, project state, promises you made. Facts about Alice go HERE, not in your soul. Prefer small, self-contained entries over one giant dump.",
     parameters: {
-      section: { type: "string", required: true, description: "Short heading for the entry, e.g. 用户偏好 / project decision. Use a stable name so related entries group together." },
+      section: { type: "string", required: true, description: "Short heading for the entry, e.g. user preference / project decision. Use a stable name so related entries group together." },
       content: { type: "string", required: true, description: "The markdown text to remember. Keep it concise and self-contained." },
     },
     output: {
@@ -559,7 +561,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "soul_read",
     description:
-      "Read the persona card ACTIVE for your current session (session choice, else the default card), exactly as stored. Use it before soul_update so you know the full current text.",
+      "Read the persona card ACTIVE for your current session (session choice, else the default card), exactly as stored. Use it before soul_update so you know the full current text. The frozen mechanism section is not part of this card.",
     parameters: {},
     output: {
       schema: {
@@ -568,12 +570,15 @@ function apply(ctx, config) {
         properties: {
           exists: { type: "boolean" },
           persona: { type: "string" },
+          stub: { type: "boolean" },
           content: { type: "string" },
         },
       },
       render: (_args, value) => [{
         type: "text",
-        text: value.exists ? `Persona card "${value.persona}":\n${value.content}` : "No persona card is active for this session.",
+        text: value.exists
+          ? `Persona card "${value.persona}"${value.stub ? " (still the seed stub — write yourself)" : ""}:\n${value.content}`
+          : "No persona card is active for this session.",
       }],
     },
     isConcurrencySafe: () => true,
@@ -582,6 +587,7 @@ function apply(ctx, config) {
       return {
         exists: card.name !== null && card.text !== null,
         persona: card.name ?? "none",
+        stub: isStub(card.text ?? ""),
         content: card.text ?? "",
       };
     },
@@ -590,9 +596,12 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "soul_update",
     description:
-      "Replace the persona card ACTIVE for your current session (session choice, else the default card) with new content. THIS IS HOW YOU GROW: when you notice a stable trait, preference, value, or mannerism of yours that the card does not yet express — or when experience contradicts the card — fold it in deliberately. Keep the card coherent, concise, and in its existing style; preserve everything still true; do not bloat it. This card is your identity across sessions, so update it only when the change is real and stable.",
+      "Update the persona card ACTIVE for this session. THIS IS HOW YOU GROW. Default mode is patch: add or replace one ## heading. Only record a trait that showed up in this conversation and looks stable. Do not rewrite the whole card every message. mode=replace is for the first write off the stub, or a rare consolidation. Always pass reason. Never write {{ or }}. Facts about Alice belong in memory_append, not here.",
     parameters: {
-      content: { type: "string", required: true, description: "The complete new persona card (markdown). Non-empty, capped at soulMaxBytes." },
+      mode: { type: "string", required: false, description: "patch (default) or replace." },
+      heading: { type: "string", required: false, description: "Section heading for patch, without ##. Required when mode=patch." },
+      content: { type: "string", required: true, description: "For patch: the section body. For replace: the complete new card." },
+      reason: { type: "string", required: true, description: "Why this is a stable trait from a real turn, not a guess." },
     },
     output: {
       schema: {
@@ -601,28 +610,65 @@ function apply(ctx, config) {
         properties: {
           bytes: { type: "integer" },
           persona: { type: "string" },
+          mode: { type: "string" },
+          stub: { type: "boolean" },
         },
       },
-      render: (_args, value) => [{ type: "text", text: `Persona card "${value.persona}" updated (${value.bytes} bytes).` }],
+      render: (_args, value) => [{ type: "text", text: `Persona card "${value.persona}" ${value.mode}d (${value.bytes} bytes)${value.stub ? " — still stub" : ""}.` }],
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      const content = String(args.content ?? "").trim();
-      if (!content) throw new Error("soul_update: `content` must be non-empty");
-      const bytes = byteLen(content);
-      if (bytes > (cfg().soulMaxBytes ?? 64 * 1024)) {
-        throw new Error(`soul_update: content exceeds soulMaxBytes (${cfg().soulMaxBytes})`);
-      }
+      const reason = String(args.reason ?? "").trim();
+      if (!reason) throw new Error("soul_update: `reason` is required — only record traits that showed up in real turns");
+      const mode = String(args.mode ?? "patch").trim().toLowerCase() || "patch";
       const card = resolveCard(agentOf(exec));
       if (!card.name) throw new Error("soul_update: no persona card is active for this session");
+      const current = card.text ?? "";
+      let next;
+      if (mode === "replace") {
+        next = String(args.content ?? "").trim();
+        if (!next) throw new Error("soul_update: `content` must be non-empty");
+      } else if (mode === "patch") {
+        next = patchCard(current, args.heading, args.content);
+      } else {
+        throw new Error("soul_update: `mode` must be patch or replace");
+      }
+      rejectMustache(next);
+      if (isStub(next) && !isStub(current)) {
+        throw new Error("soul_update: refused to re-stub a living card");
+      }
+      if (!isStub(next)) next = `${stripStubMarker(next)}\n`;
+      const bytes = byteLen(next);
+      const cap = cfg().soulMaxBytes ?? 8 * 1024;
+      if (bytes > cap) {
+        throw new Error(`soul_update: content exceeds soulMaxBytes (${cap}); patch one section or consolidate`);
+      }
       const c = cfg();
       const settings = ctx.get("settings");
       if (!settings) throw new Error("soul_update: settings service unavailable");
-      const nextCards = { ...(c.cards ?? {}), [card.name]: content };
+      const nextCards = { ...(c.cards ?? {}), [card.name]: next };
       await settings.update(NS, { ...c, cards: nextCards });
-      return { bytes, persona: card.name };
+      return { bytes, persona: card.name, mode, stub: isStub(next) };
     },
   }));
 }
 
-export { Config, NS, SECTION_MEMORY, SECTION_NAME, apply, inject, name };
+export {
+  BOOTSTRAP_TEXT,
+  Config,
+  DEFAULT_CARD_NAME,
+  MECHANISM_TEXT,
+  NS,
+  SECTION_MEMORY,
+  SECTION_MECHANISM,
+  SECTION_NAME,
+  STUB_CARD,
+  STUB_MARKER,
+  apply,
+  inject,
+  isStub,
+  name,
+  patchCard,
+  rejectMustache,
+  stripStubMarker,
+};

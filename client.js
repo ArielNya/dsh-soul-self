@@ -155,6 +155,7 @@ window.__ModuleLoader__.load({
       var [snapshot, setSnapshot] = react.useState(function () { return scope.getSnapshot(); });
       var ready = snapshot.status === "ready" && snapshot.value !== void 0;
       var [cardDraft, setCardDraft] = react.useState({ name: "", content: "" });
+      var [hydrated, setHydrated] = react.useState(false);
       var [memDraft, setMemDraft] = react.useState({});
       var [busy, setBusy] = react.useState(false);
       var [notice, setNotice] = react.useState(null);
@@ -171,6 +172,18 @@ window.__ModuleLoader__.load({
         // write queue no-ops, silently dropping saves.
         return function () { alive = false; if (un) un(); };
       }, [scope]);
+
+      react.useEffect(function () {
+        if (hydrated) return;
+        if (snapshot.status !== "ready" || snapshot.value === void 0) return;
+        var cards0 = snapshot.value.cards && typeof snapshot.value.cards === "object" ? snapshot.value.cards : {};
+        var active0 = typeof snapshot.value.active === "string" ? snapshot.value.active : "";
+        var name0 = (active0 && cards0[active0] !== void 0) ? active0 : Object.keys(cards0)[0];
+        if (name0 && cards0[name0] !== void 0) {
+          setCardDraft({ name: name0, content: String(cards0[name0] || "") });
+        }
+        setHydrated(true);
+      }, [snapshot, hydrated]);
 
       if (snapshot.status === "unavailable") {
         return h("p", { className: "__sm_unavailable" }, t("unavailable"));
@@ -325,7 +338,10 @@ window.__ModuleLoader__.load({
             ? h("p", { className: "__sm_hint" }, t("emptyCards"))
             : h("div", { className: "__sm_cardList" },
                 cardNames.map(function (n) {
-                  var preview = String(cards[n] || "").split("\n").filter(Boolean)[0] || "";
+                  var preview = String(cards[n] || "").split("\n").filter(function (line) {
+                    var s = line.trim();
+                    return s && !/^<!--/.test(s);
+                  })[0] || "(empty)";
                   return h("div", { key: n, className: "__sm_cardRow" },
                     h("span", { className: "__sm_cardName", title: n }, n),
                     n === active ? h("span", { className: "__sm_badge" }, t("defaultBadge")) : null,

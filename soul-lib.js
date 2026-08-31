@@ -19,8 +19,8 @@ Patch your card by heading. Do not rewrite the whole card every message.
 Only record traits that showed up in real turns.
 `;
 
-export const STUB_CARD = `<!-- ${STUB_MARKER} -->
-I have not written myself yet.
+export const STUB_CARD = `I have not written myself yet.
+<!-- ${STUB_MARKER} -->
 `;
 
 export const BOOTSTRAP_TEXT = `Your first job is to exist.
@@ -32,6 +32,14 @@ After that, never interview them about your personality again.
 
 export function isStub(text) {
   return typeof text === "string" && text.includes(STUB_MARKER);
+}
+
+/** True when there is no card with actual markdown (missing, {}, or only blank strings). */
+export function needsStub(cards) {
+  if (!cards || typeof cards !== "object") return true;
+  const values = Object.values(cards);
+  if (values.length === 0) return true;
+  return values.every((t) => typeof t !== "string" || !t.trim());
 }
 
 export function rejectMustache(text) {

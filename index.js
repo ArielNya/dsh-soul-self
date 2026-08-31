@@ -33,6 +33,7 @@ import {
   STUB_CARD,
   STUB_MARKER,
   isStub,
+  needsStub,
   patchCard,
   rejectMustache,
   stripStubMarker,
@@ -303,7 +304,7 @@ function apply(ctx, config) {
       if (!settings) return;
       migrated = true;
       const c = cfg();
-      if (!c.cards || Object.keys(c.cards).length === 0) {
+      if (needsStub(c.cards)) {
         const legacy = legacyFileOf();
         if (legacy) {
           const text = await readFile(legacy, "utf8");
@@ -339,6 +340,11 @@ function apply(ctx, config) {
       ctx.logger.warn(`[soul-self] legacy migration skipped: ${String(error)}`);
     }
   };
+
+  ctx.effect(() => {
+    void maybeMigrate();
+    return () => {};
+  }, "soul-md.seed()");
 
   // ── workspace list (host-maintained, for the per-workspace persona UI) ─────
   const computeWorkspaceList = () => {
@@ -667,6 +673,7 @@ export {
   apply,
   inject,
   isStub,
+  needsStub,
   name,
   patchCard,
   rejectMustache,

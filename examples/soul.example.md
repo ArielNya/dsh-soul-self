@@ -4,8 +4,8 @@ The plugin seeds a card named `self` with this exact content. You do not
 write who she is. She writes the card herself via `soul_update`.
 
 ```markdown
-<!-- dsh-soul-self:stub -->
 I have not written myself yet.
+<!-- dsh-soul-self:stub -->
 ```
 
 A frozen mechanism section (not in this file) is always injected:

@@ -11,8 +11,8 @@ DeepSeek Harness 的人设 + 长期记忆。编码工具保持可用。永远不
 1. **机制种子。** 首次运行若没有卡，插件会种一张名为 `self` 的卡：
 
    ```markdown
-   <!-- dsh-soul-self:stub -->
    I have not written myself yet.
+   <!-- dsh-soul-self:stub -->
    ```
 
    冻结的 `soul:mechanism` 段会一直注入（字节稳定，利于缓存）。那不是角色卡。

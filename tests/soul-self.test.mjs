@@ -8,6 +8,7 @@ import {
   STUB_CARD,
   STUB_MARKER,
   isStub,
+  needsStub,
   patchCard,
   rejectMustache,
   stripStubMarker,
@@ -54,6 +55,15 @@ test("mustache is refused", () => {
 
 test("stripStubMarker leaves living text", () => {
   assert.equal(stripStubMarker(STUB_CARD), "I have not written myself yet.");
+});
+
+test("needsStub treats missing and blank cards as unseeded", () => {
+  assert.equal(needsStub(undefined), true);
+  assert.equal(needsStub({}), true);
+  assert.equal(needsStub({ self: "" }), true);
+  assert.equal(needsStub({ self: "   " }), true);
+  assert.equal(needsStub({ self: STUB_CARD }), false);
+  assert.equal(needsStub({ self: "# Name\n\nNya\n" }), false);
 });
 
 test("bootstrap is gated on the stub, not always injected", () => {

@@ -598,8 +598,8 @@ function apply(ctx, config) {
     description:
       "Update the persona card ACTIVE for this session. THIS IS HOW YOU GROW. Default mode is patch: add or replace one ## heading. Only record a trait that showed up in this conversation and looks stable. Do not rewrite the whole card every message. mode=replace is for the first write off the stub, or a rare consolidation. Always pass reason. Never write {{ or }}. Facts about Ariel belong in memory_append, not here.",
     parameters: {
-      mode: { type: "string", required: false, description: "patch (default) or replace." },
-      heading: { type: "string", required: false, description: "Section heading for patch, without ##. Required when mode=patch." },
+      mode: { type: "string", description: "patch (default) or replace. Optional; defaults to patch." },
+      heading: { type: "string", description: "Section heading for patch, without ##. Required when mode=patch." },
       content: { type: "string", required: true, description: "For patch: the section body. For replace: the complete new card." },
       reason: { type: "string", required: true, description: "Why this is a stable trait from a real turn, not a guess." },
     },

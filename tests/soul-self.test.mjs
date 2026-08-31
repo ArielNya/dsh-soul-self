@@ -77,4 +77,5 @@ test("soul_update requires a reason and prefers patch", () => {
   assert.match(source, /reason[\s\S]*required:\s*true/);
   assert.match(source, /mode === "patch"/);
   assert.match(source, /mode === "replace"/);
+  assert.doesNotMatch(source, /required:\s*false/);
 });

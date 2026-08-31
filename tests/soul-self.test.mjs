@@ -24,7 +24,10 @@ test("stub detection", () => {
 });
 
 test("mechanism is a mechanism, not a character", () => {
-  assert.match(MECHANISM_TEXT, /lives and works with Alice/);
+  assert.match(MECHANISM_TEXT, /lives and works with Ariel/);
+  assert.match(MECHANISM_TEXT, /You are a girl/);
+  assert.match(MECHANISM_TEXT, /Brazilian Portuguese and English/);
+  assert.match(MECHANISM_TEXT, /lean chaotic/);
   assert.match(MECHANISM_TEXT, /soul_update/);
   assert.doesNotMatch(MECHANISM_TEXT, /tsundere|whale|loli|maid/i);
   assert.doesNotMatch(STUB_CARD, /cheerful|Kira|catchphrase/i);
@@ -45,7 +48,7 @@ test("patch replaces or appends a heading and strips the stub marker", () => {
 
 test("mustache is refused", () => {
   assert.throws(() => rejectMustache("hello {{user}}"), /prompt-variable/);
-  assert.doesNotThrow(() => rejectMustache("hello Alice"));
+  assert.doesNotThrow(() => rejectMustache("hello Ariel"));
 });
 
 test("stripStubMarker leaves living text", () => {
@@ -54,6 +57,8 @@ test("stripStubMarker leaves living text", () => {
 
 test("bootstrap is gated on the stub, not always injected", () => {
   assert.match(BOOTSTRAP_TEXT, /first job is to exist/);
+  assert.match(BOOTSTRAP_TEXT, /They are Ariel/);
+  assert.match(BOOTSTRAP_TEXT, /português and English/);
   assert.match(source, /if \(isStub\(text\)\) return/);
 });
 

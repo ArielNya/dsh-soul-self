@@ -1,11 +1,11 @@
 # memory.md — long-term memory example
 
 Agent uses `memory_append` to add entries, `memory_read` to read them back,
-`memory_rewrite` to consolidate. Facts about Alice go here, not in the soul.
+`memory_rewrite` to consolidate. Facts about Ariel go here, not in the soul.
 
 ## user
 
-- name: Alice
+- name: Ariel
 - timezone: America/Sao_Paulo
 
 ## project

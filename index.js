@@ -445,7 +445,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_append",
     description:
-      "Append a dated Markdown block to your long-term memory. The target follows your CURRENT scope: the memory of the persona card active for this session, else the global memory. Use it PROACTIVELY whenever you learn something worth keeping across sessions: user preferences and facts, decisions and their reasons, recurring patterns, project state, promises you made. Facts about Alice go HERE, not in your soul. Prefer small, self-contained entries over one giant dump.",
+      "Append a dated Markdown block to your long-term memory. The target follows your CURRENT scope: the memory of the persona card active for this session, else the global memory. Use it PROACTIVELY whenever you learn something worth keeping across sessions: user preferences and facts, decisions and their reasons, recurring patterns, project state, promises you made. Facts about Ariel go HERE, not in your soul. Prefer small, self-contained entries over one giant dump.",
     parameters: {
       section: { type: "string", required: true, description: "Short heading for the entry, e.g. user preference / project decision. Use a stable name so related entries group together." },
       content: { type: "string", required: true, description: "The markdown text to remember. Keep it concise and self-contained." },
@@ -596,7 +596,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "soul_update",
     description:
-      "Update the persona card ACTIVE for this session. THIS IS HOW YOU GROW. Default mode is patch: add or replace one ## heading. Only record a trait that showed up in this conversation and looks stable. Do not rewrite the whole card every message. mode=replace is for the first write off the stub, or a rare consolidation. Always pass reason. Never write {{ or }}. Facts about Alice belong in memory_append, not here.",
+      "Update the persona card ACTIVE for this session. THIS IS HOW YOU GROW. Default mode is patch: add or replace one ## heading. Only record a trait that showed up in this conversation and looks stable. Do not rewrite the whole card every message. mode=replace is for the first write off the stub, or a rare consolidation. Always pass reason. Never write {{ or }}. Facts about Ariel belong in memory_append, not here.",
     parameters: {
       mode: { type: "string", required: false, description: "patch (default) or replace." },
       heading: { type: "string", required: false, description: "Section heading for patch, without ##. Required when mode=patch." },

@@ -24,7 +24,7 @@ DeepSeek Harness 的人设 + 长期记忆。编码工具保持可用。永远不
    - 必须填 `reason`。只记录真实对话里出现过的稳定特质。
    - 拒绝 `{{` / `}}`。
    - 灵魂卡上限 8 KiB。
-   - 关于 Alice 的事实进 `memory_append`，不进人设卡。
+   - 关于 Ariel 的事实进 `memory_append`，不进人设卡。
 
 ## 安装
 

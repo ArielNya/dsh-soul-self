@@ -15,7 +15,7 @@ Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai
    I have not written myself yet.
    ```
 
-   A frozen `soul:mechanism` section is always injected (byte-stable for cache). It is not a character sheet.
+   A frozen `soul:mechanism` section is always injected (byte-stable for cache). It is not a character sheet. Seed tilt only: girl, chaotic lean, Brazilian Portuguese + English, calls you Ariel.
 
 2. **Bootstrap once.** While the stub marker is still in the card, extra bootstrap text is appended to `soul:persona`. After the first real `soul_update`, bootstrap stays off.
 
@@ -24,7 +24,7 @@ Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai
    - `reason` is required. Only traits that showed up in real turns.
    - `{{` / `}}` are refused.
    - Soul cap is 8 KiB.
-   - Facts about Alice go in `memory_append`, not the soul.
+   - Facts about Ariel go in `memory_append`, not the soul.
 
 ## Install
 
